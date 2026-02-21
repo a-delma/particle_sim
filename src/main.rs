@@ -1,10 +1,9 @@
-// use glfw::{fail_on_errors, Action, Key, Window, WindowHint, ClientApiHint};
 mod renderer_backend;
 use renderer_backend::pipeline_builder::PipelineBuilder;
 use renderer_backend::mesh_builder;
 use winit::{
     dpi::PhysicalSize,
-    event::{self, *},
+    event::*,
     event_loop::EventLoopBuilder,
     keyboard::{KeyCode, PhysicalKey},
     window::{WindowBuilder, Window},
@@ -19,6 +18,7 @@ struct State<'a> {
     window: &'a Window,
     render_pipeline: wgpu::RenderPipeline,
     triangle_mesh: wgpu::Buffer,
+    quad_mesh: mesh_builder::Mesh,
 }
 
 impl<'a> State<'a> {
@@ -75,6 +75,7 @@ impl<'a> State<'a> {
         surface.configure(&device, &config);
         
         let triangle_mesh = mesh_builder::make_triangle(&device);
+        let quad_mesh = mesh_builder::make_quad(&device);
 
         let mut pipeline_builder = PipelineBuilder::new();
         pipeline_builder.add_buffer_layout(mesh_builder::Vertex::get_layout());
@@ -92,6 +93,7 @@ impl<'a> State<'a> {
             size,
             render_pipeline,
             triangle_mesh,
+            quad_mesh,
         }
     }
 
@@ -138,8 +140,12 @@ impl<'a> State<'a> {
             };
 
             let mut render_pass = command_encoder.begin_render_pass(&render_pass_descriptor);
-            //
             render_pass.set_pipeline(&self.render_pipeline);
+
+            render_pass.set_vertex_buffer(0, self.quad_mesh.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(self.quad_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..6, 0, 0..1);
+
             render_pass.set_vertex_buffer(0, self.triangle_mesh.slice(..));
             render_pass.draw(0..3, 0..1);
         }
@@ -191,7 +197,7 @@ async fn run() {
                             state: ElementState::Pressed, repeat: false, ..}, .. } => {
                 println!("Goodbye");
                 elwt.exit();
-           }
+            }
 
             WindowEvent::RedrawRequested => match state.render(){
                 Ok(_) => {},
