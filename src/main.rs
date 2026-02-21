@@ -1,3 +1,7 @@
+// use glfw::{fail_on_errors, Action, Key, Window, WindowHint, ClientApiHint};
+mod renderer_backend;
+use renderer_backend::pipeline_builder::PipelineBuilder;
+use renderer_backend::mesh_builder;
 use winit::{
     dpi::PhysicalSize,
     event::{self, *},
@@ -13,6 +17,8 @@ struct State<'a> {
     config: wgpu::SurfaceConfiguration,
     size: PhysicalSize<u32>,
     window: &'a Window,
+    render_pipeline: wgpu::RenderPipeline,
+    triangle_mesh: wgpu::Buffer,
 }
 
 impl<'a> State<'a> {
@@ -67,6 +73,15 @@ impl<'a> State<'a> {
         };
 
         surface.configure(&device, &config);
+        
+        let triangle_mesh = mesh_builder::make_triangle(&device);
+
+        let mut pipeline_builder = PipelineBuilder::new();
+        pipeline_builder.add_buffer_layout(mesh_builder::Vertex::get_layout());
+        pipeline_builder.set_shader_module("shader.wgsl", "vs_main", "fs_main");
+        pipeline_builder.set_pixel_format(config.format);
+        let render_pipeline = pipeline_builder.build_pipeline(&device);
+
 
         Self {
             window,
@@ -75,6 +90,8 @@ impl<'a> State<'a> {
             queue,
             config,
             size,
+            render_pipeline,
+            triangle_mesh,
         }
     }
 
@@ -96,30 +113,37 @@ impl<'a> State<'a> {
            label: Some("Render Encoder")
        };
        let mut command_encoder = self.device.create_command_encoder(&command_encoder_descriptor);
+       {
 
-       let color_attachment = wgpu::RenderPassColorAttachment {
-           view: &image_view,
-           resolve_target: None,
-           ops: wgpu::Operations {
-               load: wgpu::LoadOp::Clear(wgpu::Color {
-                   r: 0.75,
-                   g: 0.5,
-                   b: 0.25,
-                   a: 1.0
-               }),
-               store: wgpu::StoreOp::Store,
-           },
-       };
+           let color_attachment = wgpu::RenderPassColorAttachment {
+               view: &image_view,
+               resolve_target: None,
+               ops: wgpu::Operations {
+                   load: wgpu::LoadOp::Clear(wgpu::Color {
+                       r: 0.75,
+                       g: 0.5,
+                       b: 0.25,
+                       a: 1.0
+                   }),
+                   store: wgpu::StoreOp::Store,
+               },
+           };
 
-        let render_pass_descriptor = wgpu::RenderPassDescriptor {
-            label: Some("Render Pass"),
-            color_attachments: &[Some(color_attachment)],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None
-        };
+            let render_pass_descriptor = wgpu::RenderPassDescriptor {
+                label: Some("Render Pass"),
+                color_attachments: &[Some(color_attachment)],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None
+            };
 
-        command_encoder.begin_render_pass(&render_pass_descriptor);
+            let mut render_pass = command_encoder.begin_render_pass(&render_pass_descriptor);
+            //
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_vertex_buffer(0, self.triangle_mesh.slice(..));
+            render_pass.draw(0..3, 0..1);
+        }
+
         self.queue.submit(std::iter::once(command_encoder.finish()));
 
         drawable.present();
