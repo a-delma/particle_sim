@@ -1,5 +1,5 @@
-use super::bind_group;
-use super::mesh_builder::any_as_u8_slice;
+use crate::renderer::backend::bind_group;
+use crate::renderer::backend::mesh_builder::any_as_u8_slice;
 
 pub struct UBOGroup {
     pub buffer: wgpu::Buffer,

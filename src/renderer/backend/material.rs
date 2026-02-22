@@ -1,6 +1,6 @@
 use std::env::current_dir;
 
-use super::bind_group;
+use crate::renderer::backend::bind_group;
 
 pub struct Material {
     pub bind_group: wgpu::BindGroup,
