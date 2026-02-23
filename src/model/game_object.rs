@@ -1,6 +1,6 @@
-use glm::Vec3;
+use glm::{Vec3, Vec2};
 
 pub struct Object {
     pub position: Vec3,
-    pub angle: f32,
+    pub velocity: Vec2,
 }

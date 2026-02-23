@@ -1,30 +1,13 @@
 use glm::*;
 use wgpu::util::DeviceExt;
 
+use crate::renderer::backend::definitions::Vertex;
+
 pub struct Mesh {
     pub buffer: wgpu::Buffer,
     pub offset: u64,
 }
 
-#[repr(C)] // C-style data layout
-pub struct Vertex {
-    position: Vec3,
-    color: Vec3
-}
-
-impl Vertex {
-
-    pub fn get_layout() -> wgpu::VertexBufferLayout<'static> {
-
-        const ATTRIBUTES: [wgpu::VertexAttribute; 2] = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
-
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &ATTRIBUTES
-        }
-    }
-}
 
 // From: https://stackoverflow.com/questions/28127165/how-to-convert-struct-to-u8
 pub unsafe fn any_as_u8_slice<T: Sized>(p: &T) -> &[u8] {

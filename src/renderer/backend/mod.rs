@@ -4,3 +4,5 @@ pub mod bind_group_layout;
 pub mod bind_group;
 pub mod material;
 pub mod ubo;
+pub mod ibo;
+pub mod definitions;

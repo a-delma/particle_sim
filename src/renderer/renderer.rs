@@ -2,10 +2,12 @@ use glfw::Window;
 use glm::{ext, radians};
 
 use crate::renderer::backend::{
+    definitions::{ParticleInstance, Vertex},
     bind_group_layout,
     material::Material,
     mesh_builder, pipeline,
     ubo::{UBO, UBOGroup},
+    ibo::IBO,
 };
 use crate::model::game_object::Object;
 
@@ -18,10 +20,9 @@ pub struct State<'a> {
     pub size: (i32, i32),
     pub window: &'a mut Window,
     render_pipeline: wgpu::RenderPipeline,
-    triangle_mesh: wgpu::Buffer,
     quad_mesh: mesh_builder::Mesh,
-    triangle_material: Material,
     quad_material: Material,
+    ibo: Option<IBO::<ParticleInstance>>,
     ubo: Option<UBOGroup>,
     projection_ubo: UBO,
 }
@@ -73,8 +74,6 @@ impl<'a> State<'a> {
         };
         surface.configure(&device, &config);
 
-        let triangle_buffer = mesh_builder::make_triangle(&device);
-
         let quad_mesh = mesh_builder::make_quad(&device);
 
         let material_bind_group_layout;
@@ -96,20 +95,14 @@ impl<'a> State<'a> {
             let mut builder = pipeline::Builder::new(&device);
             builder.set_shader_module("shader.wgsl", "vs_main", "fs_main");
             builder.set_pixel_format(config.format);
-            builder.add_vertex_buffer_layout(mesh_builder::Vertex::get_layout());
+            builder.add_vertex_buffer_layout(Vertex::get_layout());
+            builder.add_vertex_buffer_layout(ParticleInstance::get_layout());
             builder.add_bind_group_layout(&material_bind_group_layout);
-            builder.add_bind_group_layout(&ubo_bind_group_layout);
-            builder.add_bind_group_layout(&ubo_bind_group_layout);
+            // builder.add_bind_group_layout(&ubo_bind_group_layout);
+            // builder.add_bind_group_layout(&ubo_bind_group_layout);
             render_pipeline = builder.build("Render Pipeline");
         }
 
-        let triangle_material = Material::new(
-            "Gigi_small.png",
-            &device,
-            &queue,
-            "Triangle Material",
-            &material_bind_group_layout,
-        );
         let quad_material = Material::new(
             "Gigi_small.png",
             &device,
@@ -129,10 +122,9 @@ impl<'a> State<'a> {
             config,
             size,
             render_pipeline,
-            triangle_mesh: triangle_buffer,
             quad_mesh,
-            triangle_material: triangle_material,
             quad_material: quad_material,
+            ibo: None,
             ubo: None,
             projection_ubo: projection_ubo,
         }
@@ -150,6 +142,13 @@ impl<'a> State<'a> {
             &self.device,
             object_count,
             ubo_bind_group_layout,
+        ));
+    }
+
+    pub fn build_ibo_for_object(&mut self, object_count: usize) {
+        self.ibo = Some(IBO::new(
+            &self.device,
+            object_count,
         ));
     }
 
@@ -178,49 +177,33 @@ impl<'a> State<'a> {
         self.projection_ubo.upload(&projection, &self.queue);
     }
 
-    fn update_transformations(&mut self, quads: &Vec<Object>, tris: &Vec<Object>) {
-        let mut offset: u64 = 0;
+
+    fn update_transformations(&mut self, quads: &Vec<Object>) {
+        
+        let mut particles: Vec<ParticleInstance> = Vec::new();
         for i in 0..quads.len() {
-            let c0 = glm::Vec4::new(1.0, 0.0, 0.0, 0.0);
-            let c1 = glm::Vec4::new(0.0, 1.0, 0.0, 0.0);
-            let c2 = glm::Vec4::new(0.0, 0.0, 1.0, 0.0);
-            let c3 = glm::Vec4::new(0.0, 0.0, 0.0, 1.0);
-            let m1 = glm::Matrix4::new(c0, c1, c2, c3);
-            let m2 = glm::Matrix4::new(c0, c1, c2, c3);
-            let matrix = ext::rotate(&m2, quads[i].angle, glm::Vector3::new(0.0, 0.0, 1.0))
-                * ext::translate(&m1, quads[i].position);
-            self.ubo
-                .as_mut()
-                .unwrap()
-                .upload(offset + i as u64, &matrix, &self.queue);
+            particles.push(ParticleInstance{
+                position: [quads[i].position.x, quads[i].position.y],
+                size: 1.0,
+                color: [1.0, 0.0, 0.0, 1.0],
+            });
         }
 
-        offset = quads.len() as u64;
-        for i in 0..tris.len() {
-            let c0 = glm::Vec4::new(1.0, 0.0, 0.0, 0.0);
-            let c1 = glm::Vec4::new(0.0, 1.0, 0.0, 0.0);
-            let c2 = glm::Vec4::new(0.0, 0.0, 1.0, 0.0);
-            let c3 = glm::Vec4::new(0.0, 0.0, 0.0, 1.0);
-            let m1 = glm::Matrix4::new(c0, c1, c2, c3);
-            let m2 = glm::Matrix4::new(c0, c1, c2, c3);
-            let matrix = ext::rotate(&m2, tris[i].angle, glm::Vector3::new(0.0, 0.0, 1.0))
-                * ext::translate(&m1, tris[i].position);
-            self.ubo
-                .as_mut()
-                .unwrap()
-                .upload(offset + i as u64, &matrix, &self.queue);
-        }
+        self.ibo
+            .as_mut()
+            .unwrap()
+            .upload(0, &particles, &self.queue);
     }
+
 
     pub fn render(
         &mut self,
         quads: &Vec<Object>,
-        tris: &Vec<Object>,
     ) -> Result<(), wgpu::SurfaceError> {
         self.device.poll(wgpu::MaintainBase::Wait).ok();
 
         self.update_projection();
-        self.update_transformations(quads, tris);
+        self.update_transformations(quads);
 
         let event = self.queue.submit([]);
         let maintain = wgpu::MaintainBase::WaitForSubmissionIndex(event);
@@ -263,36 +246,23 @@ impl<'a> State<'a> {
             let mut renderpass = command_encoder.begin_render_pass(&render_pass_descriptor);
             renderpass.set_pipeline(&self.render_pipeline);
 
-            // Rendering the Quds
+            // Rendering the Quads
             renderpass.set_bind_group(0, &self.quad_material.bind_group, &[]);
-            renderpass.set_bind_group(2, &self.projection_ubo.bind_group, &[]);
+            // renderpass.set_bind_group(2, &self.projection_ubo.bind_group, &[]);
             renderpass.set_vertex_buffer(0, self.quad_mesh.buffer.slice(0..self.quad_mesh.offset));
+            renderpass.set_vertex_buffer(
+                1, 
+                self.ibo
+                    .as_ref()
+                    .unwrap()
+                    .buffer
+                    .slice(..));
             renderpass.set_index_buffer(
                 self.quad_mesh.buffer.slice(self.quad_mesh.offset..),
                 wgpu::IndexFormat::Uint16,
             );
-            let mut offset: usize = 0;
-            for i in 0..quads.len() {
-                renderpass.set_bind_group(
-                    1,
-                    &(self.ubo.as_ref().unwrap()).bind_groups[offset + i],
-                    &[],
-                );
-                renderpass.draw_indexed(0..6, 0, 0..1);
-            }
+            renderpass.draw_indexed(0..6, 0, 0..self.ibo.as_ref().unwrap().count as u32);
 
-            // Rendering the tris
-            renderpass.set_bind_group(0, &self.triangle_material.bind_group, &[]);
-            renderpass.set_vertex_buffer(0, self.triangle_mesh.slice(..));
-            offset += quads.len();
-            for i in 0..tris.len() {
-                renderpass.set_bind_group(
-                    1,
-                    &(self.ubo.as_ref().unwrap()).bind_groups[offset + i],
-                    &[],
-                );
-                renderpass.draw(0..3, 0..1);
-            }
         }
         self.queue.submit(std::iter::once(command_encoder.finish()));
 

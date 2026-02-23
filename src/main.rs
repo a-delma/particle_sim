@@ -2,7 +2,7 @@ use glfw::{Action, ClientApiHint, Key, WindowHint, fail_on_errors};
 mod renderer;
 use renderer::renderer::State;
 mod model;
-use model::{game_object::Object, world::World};
+use model::world::{World, SpawnPattern};
 
 async fn run() {
     let mut glfw = glfw::init(fail_on_errors!()).unwrap();
@@ -18,16 +18,10 @@ async fn run() {
     state.window.set_mouse_button_polling(true);
     state.window.set_pos_polling(true);
 
-    let mut world = World::new();
-    world.quads.push(Object {
-        position: glm::Vec3::new(0.5, 0.0, -2.0),
-        angle: 0.0,
-    });
-    world.tris.push(Object {
-        position: glm::Vec3::new(0.0, 0.0, -1.0),
-        angle: 0.0,
-    });
-    state.build_ubos_for_objects(2);
+    let object_count: usize = 32;
+    let mut world = World::new(object_count, SpawnPattern::Random);
+    state.build_ibo_for_object(object_count);
+    state.build_ubos_for_objects(1);
 
     while !state.window.should_close() {
         world.update(1.667);
@@ -54,7 +48,7 @@ async fn run() {
             }
         }
 
-        match state.render(&world.quads, &world.tris) {
+        match state.render(&world.quads) {
             Ok(_) => {}
             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                 state.update_surface();

@@ -1,11 +1,15 @@
 @group(0) @binding(0) var myTexture: texture_2d<f32>;
 @group(0) @binding(1) var mySampler: sampler;
-@group(1) @binding(0) var<uniform> model: mat4x4<f32>;
-@group(2) @binding(0) var<uniform> projection: mat4x4<f32>;
 
 struct Vertex {
+    // Mesh Vertex data (slot 0)
     @location(0) position: vec3<f32>,
     @location(1) color: vec3<f32>,
+
+    // Instance data (slot 1)
+    @location(2) inst_color: vec4<f32>,
+    @location(3) offset: vec2<f32>,
+    @location(4) size: f32,
 };
 
 struct VertexPayload {
@@ -16,9 +20,8 @@ struct VertexPayload {
 
 @vertex
 fn vs_main(vertex: Vertex) -> VertexPayload {
-
     var out: VertexPayload;
-    out.position = projection * model * vec4<f32>(vertex.position, 1.0);
+    out.position = vec4<f32>(vertex.position, 1.0);
     out.color = vertex.color;
     out.texCoord = vec2<f32>(0.5 * (vertex.position.x + 1f), -0.5 * (vertex.position.y + 1f));
     return out;
