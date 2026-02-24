@@ -18,8 +18,8 @@ impl World {
     pub fn new(count: usize, pattern: SpawnPattern) -> Self {
         let quads = match pattern {
             SpawnPattern::Random => Self::create_random_objects(count),
-            SpawnPattern::Circle => Self::create_circle_objects(count, 5.0),
-            SpawnPattern::Grid => Self::create_grid_objects(count, 5, 1.0),
+            SpawnPattern::Circle => Self::create_circle_objects(count, 0.5),
+            SpawnPattern::Grid => Self::create_grid_objects(count, 0.5),
         };
 
         World { quads: quads }
@@ -36,7 +36,7 @@ impl World {
                     rng.random_range(-1.0..1.0),
                     0.0,
                 ),
-                velocity: Vec2::new(0.0, 0.0),
+                velocity: Vec2::new(0.05, 0.0),
             });
         }
 
@@ -58,7 +58,10 @@ impl World {
         objects
     }
 
-    fn create_grid_objects(width: usize, height: usize, spacing: f32) -> Vec<Object> {
+    fn create_grid_objects(count: usize, spacing: f32) -> Vec<Object> {
+        let width = (count as f64).sqrt() as usize;
+        let height = (count as f64).sqrt() as usize;
+
         let mut objects = Vec::with_capacity(width * height);
 
         for y in 0..height {

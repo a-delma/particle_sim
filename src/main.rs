@@ -24,7 +24,7 @@ async fn run() {
     state.build_ubos_for_objects(1);
 
     while !state.window.should_close() {
-        world.update(1.667);
+        world.update(0.1667);
         glfw.poll_events();
         for (_, event) in glfw::flush_messages(&events) {
             match event {

@@ -1,15 +1,15 @@
 use glfw::Window;
-use glm::{ext, radians};
+use nalgebra_glm::ortho;
 
+use crate::model::game_object::Object;
 use crate::renderer::backend::{
-    definitions::{ParticleInstance, Vertex},
     bind_group_layout,
+    definitions::{ParticleInstance, Vertex},
+    ibo::IBO,
     material::Material,
     mesh_builder, pipeline,
     ubo::{UBO, UBOGroup},
-    ibo::IBO,
 };
-use crate::model::game_object::Object;
 
 pub struct State<'a> {
     instance: wgpu::Instance,
@@ -22,7 +22,7 @@ pub struct State<'a> {
     render_pipeline: wgpu::RenderPipeline,
     quad_mesh: mesh_builder::Mesh,
     quad_material: Material,
-    ibo: Option<IBO::<ParticleInstance>>,
+    ibo: Option<IBO<ParticleInstance>>,
     ubo: Option<UBOGroup>,
     projection_ubo: UBO,
 }
@@ -98,7 +98,7 @@ impl<'a> State<'a> {
             builder.add_vertex_buffer_layout(Vertex::get_layout());
             builder.add_vertex_buffer_layout(ParticleInstance::get_layout());
             builder.add_bind_group_layout(&material_bind_group_layout);
-            // builder.add_bind_group_layout(&ubo_bind_group_layout);
+            builder.add_bind_group_layout(&ubo_bind_group_layout);
             // builder.add_bind_group_layout(&ubo_bind_group_layout);
             render_pipeline = builder.build("Render Pipeline");
         }
@@ -146,10 +146,7 @@ impl<'a> State<'a> {
     }
 
     pub fn build_ibo_for_object(&mut self, object_count: usize) {
-        self.ibo = Some(IBO::new(
-            &self.device,
-            object_count,
-        ));
+        self.ibo = Some(IBO::new(&self.device, object_count));
     }
 
     pub fn resize(&mut self, new_size: (i32, i32)) {
@@ -169,22 +166,30 @@ impl<'a> State<'a> {
     }
 
     fn update_projection(&mut self) {
-        let fov_y: f32 = radians(45.0);
-        let aspect = 8.0 / 9.0;
-        let z_near = 0.1;
-        let z_far = 10.0;
-        let projection = ext::perspective(fov_y, aspect, z_near, z_far);
-        self.projection_ubo.upload(&projection, &self.queue);
+
+        let screen_width = self.config.width as f32;
+        let screen_height = self.config.height as f32;
+
+        // let ortho = ortho(
+        //     0.0,
+        //     screen_width, // left, right
+        //     screen_height,
+        //     0.0, // bottom, top (y flipped)
+        //     -1.0,
+        //     1.0, // near, far
+        // );
+        
+        let ortho = ortho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
+
+        self.projection_ubo.upload(&ortho, &self.queue);
     }
 
-
     fn update_transformations(&mut self, quads: &Vec<Object>) {
-        
         let mut particles: Vec<ParticleInstance> = Vec::new();
         for i in 0..quads.len() {
-            particles.push(ParticleInstance{
+            particles.push(ParticleInstance {
                 position: [quads[i].position.x, quads[i].position.y],
-                size: 1.0,
+                size: 0.05,
                 color: [1.0, 0.0, 0.0, 1.0],
             });
         }
@@ -195,11 +200,7 @@ impl<'a> State<'a> {
             .upload(0, &particles, &self.queue);
     }
 
-
-    pub fn render(
-        &mut self,
-        quads: &Vec<Object>,
-    ) -> Result<(), wgpu::SurfaceError> {
+    pub fn render(&mut self, quads: &Vec<Object>) -> Result<(), wgpu::SurfaceError> {
         self.device.poll(wgpu::MaintainBase::Wait).ok();
 
         self.update_projection();
@@ -248,21 +249,14 @@ impl<'a> State<'a> {
 
             // Rendering the Quads
             renderpass.set_bind_group(0, &self.quad_material.bind_group, &[]);
-            // renderpass.set_bind_group(2, &self.projection_ubo.bind_group, &[]);
+            renderpass.set_bind_group(1, &self.projection_ubo.bind_group, &[]);
             renderpass.set_vertex_buffer(0, self.quad_mesh.buffer.slice(0..self.quad_mesh.offset));
-            renderpass.set_vertex_buffer(
-                1, 
-                self.ibo
-                    .as_ref()
-                    .unwrap()
-                    .buffer
-                    .slice(..));
+            renderpass.set_vertex_buffer(1, self.ibo.as_ref().unwrap().buffer.slice(..));
             renderpass.set_index_buffer(
                 self.quad_mesh.buffer.slice(self.quad_mesh.offset..),
                 wgpu::IndexFormat::Uint16,
             );
             renderpass.draw_indexed(0..6, 0, 0..self.ibo.as_ref().unwrap().count as u32);
-
         }
         self.queue.submit(std::iter::once(command_encoder.finish()));
 

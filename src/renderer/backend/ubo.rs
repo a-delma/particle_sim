@@ -66,7 +66,7 @@ impl UBO {
         Self { buffer, bind_group }
     }
 
-    pub fn upload(&mut self, matrix: &glm::Mat4, queue: &wgpu::Queue) {
+    pub fn upload(&mut self, matrix: &nalgebra_glm::TMat4<f32>, queue: &wgpu::Queue) {
         let data = unsafe { any_as_u8_slice(matrix) };
         queue.write_buffer(&self.buffer, 0, data);
     }

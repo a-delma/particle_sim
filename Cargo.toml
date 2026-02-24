@@ -8,6 +8,7 @@ glfw = "0.59.0"
 wgpu = "25.0.0"
 pollster = "0.4.0"
 glm = "*"
+nalgebra-glm = "0.20.0"
 rand = "0.10.0"
 bytemuck = "1.25.0"
 
