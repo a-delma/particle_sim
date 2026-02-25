@@ -41,10 +41,10 @@ pub fn make_triangle(device: &wgpu::Device) -> wgpu::Buffer {
 pub fn make_quad(device: &wgpu::Device) -> Mesh {
     
     let vertices: [Vertex; 4] = [
-        Vertex {position: Vec3::new(-1.0, -1.0, 0.0), color: Vec3::new(1.0, 0.0, 0.0)},
-        Vertex {position: Vec3::new( 1.0, -1.0, 0.0), color: Vec3::new(1.0, 0.0, 0.0)},
-        Vertex {position: Vec3::new( 1.0,  1.0, 0.0), color: Vec3::new(1.0, 0.0, 0.0)},
-        Vertex {position: Vec3::new(-1.0,  1.0, 0.0), color: Vec3::new(1.0, 0.0, 0.0)}
+        Vertex {position: Vec3::new(-0.5, -0.5, 0.0), color: Vec3::new(0.5, 0.0, 0.0)},
+        Vertex {position: Vec3::new( 0.5, -0.5, 0.0), color: Vec3::new(0.5, 0.0, 0.0)},
+        Vertex {position: Vec3::new( 0.5,  0.5, 0.0), color: Vec3::new(0.5, 0.0, 0.0)},
+        Vertex {position: Vec3::new(-0.5,  0.5, 0.0), color: Vec3::new(0.5, 0.0, 0.0)}
     ];
     let indices: [u16; 6] = [0, 1, 2, 2, 3, 0];
 

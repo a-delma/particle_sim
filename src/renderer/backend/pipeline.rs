@@ -73,7 +73,19 @@ impl<'a> Builder<'a> {
 
         let render_targets = [Some(wgpu::ColorTargetState {
             format: self.pixel_format,
-            blend: Some(wgpu::BlendState::REPLACE),
+            blend: Some( wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::One,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add
+                }, 
+                alpha: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::One,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add
+                },
+
+            }),
             write_mask: wgpu::ColorWrites::ALL,
         })];
 

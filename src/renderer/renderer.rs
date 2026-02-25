@@ -190,7 +190,7 @@ impl<'a> State<'a> {
             particles.push(ParticleInstance {
                 position: [quads[i].position.x, quads[i].position.y],
                 size: 0.05,
-                color: [1.0, 0.0, 0.0, 1.0],
+                color: [1.0, 0.9, 0.8],
             });
         }
 
@@ -226,9 +226,9 @@ impl<'a> State<'a> {
             resolve_target: None,
             ops: wgpu::Operations {
                 load: wgpu::LoadOp::Clear(wgpu::Color {
-                    r: 0.75,
-                    g: 0.5,
-                    b: 0.25,
+                    r: 0.005,
+                    g: 0.005,
+                    b: 0.005,
                     a: 1.0,
                 }),
                 store: wgpu::StoreOp::Store,

@@ -23,7 +23,7 @@ impl Vertex {
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 pub struct ParticleInstance {
-    pub color: [f32; 4],
+    pub color: [f32; 3],
     pub position: [f32; 2],
     pub size: f32,
 }
@@ -31,7 +31,7 @@ pub struct ParticleInstance {
 impl ParticleInstance {
     pub fn get_layout() -> wgpu::VertexBufferLayout<'static> {
         const ATTRIBUTES: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![
-            2 => Float32x4,    // color
+            2 => Float32x3,    // color
             3 => Float32x2,    // position
             4 => Float32,      // size
         ];

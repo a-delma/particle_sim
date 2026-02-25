@@ -36,7 +36,7 @@ impl World {
                     rng.random_range(-1.0..1.0),
                     0.0,
                 ),
-                velocity: Vec2::new(0.05, 0.0),
+                velocity: Vec2::new(0.00, 0.0),
             });
         }
 
