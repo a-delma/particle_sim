@@ -4,6 +4,8 @@ use renderer::renderer::State;
 mod model;
 use model::world::{World, SpawnPattern};
 
+use model::quad_tree::{QuadTreeContainer, Rect};
+
 async fn run() {
     let mut glfw = glfw::init(fail_on_errors!()).unwrap();
     glfw.window_hint(WindowHint::ClientApi(ClientApiHint::NoApi));
@@ -59,6 +61,49 @@ async fn run() {
     }
 }
 
+use glm::Vec2;
+
 fn main() {
-    pollster::block_on(run());
+    // pollster::block_on(run());
+    let world = Rect {
+        pos: Vec2::new(0.0, 0.0),
+        size: Vec2::new(10.0, 10.0),
+    };
+
+    let mut world_tree: QuadTreeContainer<usize> = QuadTreeContainer::new(world, 3);
+
+    let item1 = 1;
+    let area1 = Rect {
+        pos: Vec2::new(2.0, 2.0),
+        size: Vec2::new(1.0, 1.0),
+    };
+ 
+    let item2 = 2;
+    let area2 = Rect {
+        pos: Vec2::new(6.0, 6.0),
+        size: Vec2::new(1.0, 1.0),
+    };
+    
+    world_tree.insert(item1, area1);
+    world_tree.insert(item2, area2);
+    //
+    // // let mut item_list: Vec<&usize> = Vec::new();
+    // // world_tree.list_items(&mut item_list);
+    // //
+    // // for i in &item_list {
+    // //     println!("{}", i);
+    // // }
+    //
+    // // let mut search_list: Vec<&usize> = Vec::new();
+    let search_area = Rect {
+        pos: Vec2::new(5.0, 5.0),
+        size: Vec2::new(2.0, 2.0),
+    };
+    let search_list = world_tree.search(&search_area);
+
+    for i in &search_list {
+        println!("{}", i);
+    }
+
+    // println!("{}", world_tree.size())
 }
