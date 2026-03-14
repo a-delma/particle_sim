@@ -1,6 +1,6 @@
 use glm::Vec2;
-use std::rc::Rc;
 use std::cell::RefCell;
+use std::rc::Rc;
 
 #[derive(Copy, Clone)]
 pub struct Rect {
@@ -69,16 +69,47 @@ impl<T> QuadTreeContainer<T> {
     }
 
     pub fn search(&self, area: &Rect) -> Vec<&T> {
-        let indices : Vec<usize> = self.root.search(area);
-        indices.iter()
-            .map(|&i| &self.items[i].item)
-            .collect()
+        let indices: Vec<usize> = self.root.search(area);
+        indices.iter().map(|&i| &self.items[i].item).collect()
     }
 
-    // pub fn remove(&self, item: &T) {
-    //     
-    // }
+    pub fn remove(&mut self, index: usize) {
+        // +-------------+---------------------------------+---------------------------------+
+        // | Inner\Outer |             Middle              |              Tail               |
+        // +-------------+---------------------------------+---------------------------------+
+        // | Middle      | Change Both                     | Update Inner List + Outer index |
+        // | Tail        | Update Inner List + Inner Index | Just remove                     |
+        // +-------------+---------------------------------+---------------------------------+
 
+        // First remove elem from its inner list, and get back a possible tail index
+        let tail_old_index = 
+        {
+            let mut inner_list = self.items[index].loc.container.borrow_mut();
+            let inner_index = self.items[index].loc.id;
+
+            if inner_index == inner_list.len() - 1 {
+                inner_list.pop();
+                None
+            } else {
+                inner_list.swap_remove(inner_index);
+                Some(inner_list[inner_index].1)
+            }
+        };
+        // Correcting any outer list updates
+        if let Some(id) = tail_old_index {
+            self.items[id].loc.id = self.items[index].loc.id;
+        }
+
+        // Next we change the outer list
+        if index == self.items.len() - 1 {
+            self.items.pop();
+        } else {
+            self.items.swap_remove(index);
+            let swapped_item = &self.items[index];
+            let inner_list = &mut swapped_item.loc.container.borrow_mut();
+            inner_list[swapped_item.loc.id].1 = index;
+        }
+    }
 }
 
 struct QuadTree {
@@ -138,7 +169,6 @@ impl QuadTree {
 
     fn clear(&mut self) {
         self.items.borrow_mut().clear();
-        
 
         for node in self.child_nodes.iter_mut().flatten() {
             node.clear();
@@ -170,7 +200,7 @@ impl QuadTree {
             }
         }
         self.items.borrow_mut().push((area, item));
-        let len = self.items.borrow().len();
+        let len = self.items.borrow().len() - 1;
         QuadTreeItemLocation {
             container: self.items.clone(),
             id: len,
@@ -183,7 +213,7 @@ impl QuadTree {
         items
     }
 
-    fn search_list (&self, area: &Rect, item_list: &mut Vec<usize>) {
+    fn search_list(&self, area: &Rect, item_list: &mut Vec<usize>) {
         for (i, j) in self.items.borrow_mut().iter() {
             if i.overlaps_rect(area) {
                 item_list.push(j.clone());

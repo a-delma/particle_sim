@@ -83,22 +83,30 @@ fn main() {
         pos: Vec2::new(6.0, 6.0),
         size: Vec2::new(1.0, 1.0),
     };
+
+
+    let item3 = 3;
+    let area3 = Rect {
+        pos: Vec2::new(6.0, 6.0),
+        size: Vec2::new(1.0, 1.0),
+    };
     
     world_tree.insert(item1, area1);
     world_tree.insert(item2, area2);
-    //
-    // // let mut item_list: Vec<&usize> = Vec::new();
-    // // world_tree.list_items(&mut item_list);
-    // //
-    // // for i in &item_list {
-    // //     println!("{}", i);
-    // // }
-    //
-    // // let mut search_list: Vec<&usize> = Vec::new();
+    world_tree.insert(item3, area3);
+
     let search_area = Rect {
         pos: Vec2::new(5.0, 5.0),
         size: Vec2::new(2.0, 2.0),
     };
+    let search_list = world_tree.search(&search_area);
+
+    for i in &search_list {
+        println!("{}", i);
+    }
+
+    world_tree.remove(1);
+
     let search_list = world_tree.search(&search_area);
 
     for i in &search_list {
