@@ -184,7 +184,7 @@ impl<'a> State<'a> {
         self.projection_ubo.upload(&ortho, &self.queue);
     }
 
-    fn update_transformations(&mut self, quads: &Vec<Object>) {
+    fn update_transformations(&mut self, quads: Vec<&Object>) {
         let mut particles: Vec<ParticleInstance> = Vec::new();
         for i in 0..quads.len() {
             particles.push(ParticleInstance {
@@ -200,10 +200,11 @@ impl<'a> State<'a> {
             .upload(0, &particles, &self.queue);
     }
 
-    pub fn render(&mut self, quads: &Vec<Object>) -> Result<(), wgpu::SurfaceError> {
+    pub fn render(&mut self, items: Vec<(&Object, usize)>) -> Result<(), wgpu::SurfaceError> {
         self.device.poll(wgpu::MaintainBase::Wait).ok();
 
         self.update_projection();
+        let quads = items.iter().map(|(item, _)| *item).collect();
         self.update_transformations(quads);
 
         let event = self.queue.submit([]);

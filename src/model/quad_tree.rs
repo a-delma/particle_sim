@@ -73,7 +73,7 @@ impl<T> QuadTreeContainer<T> {
         indices.iter().map(|&i| &self.items[i].item).collect()
     }
 
-    pub fn remove(&mut self, index: usize) {
+    pub fn remove(&mut self, index: usize) -> Option<T>{
         // +-------------+---------------------------------+---------------------------------+
         // | Inner\Outer |             Middle              |              Tail               |
         // +-------------+---------------------------------+---------------------------------+
@@ -101,14 +101,36 @@ impl<T> QuadTreeContainer<T> {
         }
 
         // Next we change the outer list
+        let item : Option<QuadTreeItem<T>>;
         if index == self.items.len() - 1 {
-            self.items.pop();
+            item = self.items.pop();
         } else {
-            self.items.swap_remove(index);
+            item = Some(self.items.swap_remove(index));
             let swapped_item = &self.items[index];
             let inner_list = &mut swapped_item.loc.container.borrow_mut();
             inner_list[swapped_item.loc.id].1 = index;
         }
+        if let Some(quad_item) = item {
+            Some(quad_item.item)
+        } else {
+            None
+        }
+        
+    }
+
+    pub fn relocate(&mut self, index: usize, area: Rect) {
+        let old_item = self.remove(index);
+        if let Some(item) = old_item {
+            self.insert(item, area);
+        }
+    }
+
+    pub fn get_items(&self) -> Vec<(&T, usize)> {
+        self.items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| (&item.item, i))
+            .collect()
     }
 }
 

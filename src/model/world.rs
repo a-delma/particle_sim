@@ -1,4 +1,5 @@
 use crate::model::game_object::Object;
+use crate::{QuadTreeContainer, Rect};
 
 use glm::{Vec2, Vec3};
 use rand::rngs::StdRng;
@@ -11,7 +12,7 @@ pub enum SpawnPattern {
 }
 
 pub struct World {
-    pub quads: Vec<Object>,
+    world_tree: QuadTreeContainer<Object>,
 }
 
 impl World {
@@ -21,8 +22,25 @@ impl World {
             SpawnPattern::Circle => Self::create_circle_objects(count, 0.5),
             SpawnPattern::Grid => Self::create_grid_objects(count, 0.5),
         };
+ 
+        let world = Rect {
+            pos: Vec2::new(0.0, 0.0),
+            size: Vec2::new(10.0, 10.0),
+        };
 
-        World { quads: quads }
+        let mut world_tree: QuadTreeContainer<Object> = QuadTreeContainer::new(world, 5);
+        
+
+        for i in quads {
+            let loc = Rect {
+                pos: Vec2::new(i.position.x, i.position.y),
+                size: Vec2::new(i.size / 2.0, i.size / 2.0), 
+                
+            };
+            world_tree.insert(i, loc); 
+        }
+
+        World { world_tree: world_tree }
     }
 
     fn create_random_objects(count: usize) -> Vec<Object> {
@@ -37,6 +55,7 @@ impl World {
                     0.0,
                 ),
                 velocity: Vec2::new(0.00, 0.0),
+                size: 1.0,
             });
         }
 
@@ -52,6 +71,7 @@ impl World {
             objects.push(Object {
                 position: Vec3::new(radius * angle.cos(), radius * angle.sin(), 0.0),
                 velocity: Vec2::new(angle.cos(), angle.sin()),
+                size: 1.0,
             });
         }
 
@@ -69,6 +89,7 @@ impl World {
                 objects.push(Object {
                     position: Vec3::new(x as f32 * spacing, y as f32 * spacing, 0.0),
                     velocity: Vec2::new(0.0, 0.0),
+                    size: 1.0,
                 });
             }
         }
@@ -76,10 +97,14 @@ impl World {
         objects
     }
 
+    pub fn get_items(&self) -> Vec<(&Object, usize)> {
+        self.world_tree.get_items() 
+    }
+
     pub fn update(&mut self, dt: f32) {
-        for object in &mut self.quads {
-            object.position.x += object.velocity.x * dt;
-            object.position.y += object.velocity.y * dt;
-        }
+        // for object in &mut self.quads {
+        //     object.position.x += object.velocity.x * dt;
+        //     object.position.y += object.velocity.y * dt;
+        // }
     }
 }

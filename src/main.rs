@@ -50,7 +50,7 @@ async fn run() {
             }
         }
 
-        match state.render(&world.quads) {
+        match state.render(world.get_items()) {
             Ok(_) => {}
             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                 state.update_surface();
@@ -64,54 +64,54 @@ async fn run() {
 use glm::Vec2;
 
 fn main() {
-    // pollster::block_on(run());
-    let world = Rect {
-        pos: Vec2::new(0.0, 0.0),
-        size: Vec2::new(10.0, 10.0),
-    };
-
-    let mut world_tree: QuadTreeContainer<usize> = QuadTreeContainer::new(world, 3);
-
-    let item1 = 1;
-    let area1 = Rect {
-        pos: Vec2::new(2.0, 2.0),
-        size: Vec2::new(1.0, 1.0),
-    };
- 
-    let item2 = 2;
-    let area2 = Rect {
-        pos: Vec2::new(6.0, 6.0),
-        size: Vec2::new(1.0, 1.0),
-    };
-
-
-    let item3 = 3;
-    let area3 = Rect {
-        pos: Vec2::new(6.0, 6.0),
-        size: Vec2::new(1.0, 1.0),
-    };
-    
-    world_tree.insert(item1, area1);
-    world_tree.insert(item2, area2);
-    world_tree.insert(item3, area3);
-
-    let search_area = Rect {
-        pos: Vec2::new(5.0, 5.0),
-        size: Vec2::new(2.0, 2.0),
-    };
-    let search_list = world_tree.search(&search_area);
-
-    for i in &search_list {
-        println!("{}", i);
-    }
-
-    world_tree.remove(1);
-
-    let search_list = world_tree.search(&search_area);
-
-    for i in &search_list {
-        println!("{}", i);
-    }
+    pollster::block_on(run());
+ //    let world = Rect {
+ //        pos: Vec2::new(0.0, 0.0),
+ //        size: Vec2::new(10.0, 10.0),
+ //    };
+ //
+ //    let mut world_tree: QuadTreeContainer<usize> = QuadTreeContainer::new(world, 3);
+ //
+ //    let item1 = 1;
+ //    let area1 = Rect {
+ //        pos: Vec2::new(2.0, 2.0),
+ //        size: Vec2::new(1.0, 1.0),
+ //    };
+ // 
+ //    let item2 = 2;
+ //    let area2 = Rect {
+ //        pos: Vec2::new(6.0, 6.0),
+ //        size: Vec2::new(1.0, 1.0),
+ //    };
+ //
+ //
+ //    let item3 = 3;
+ //    let area3 = Rect {
+ //        pos: Vec2::new(6.0, 6.0),
+ //        size: Vec2::new(1.0, 1.0),
+ //    };
+ //    
+ //    world_tree.insert(item1, area1);
+ //    world_tree.insert(item2, area2);
+ //    world_tree.insert(item3, area3);
+ //
+ //    let search_area = Rect {
+ //        pos: Vec2::new(0.0, 0.0),
+ //        size: Vec2::new(3.0, 3.0),
+ //    };
+ //    let search_list = world_tree.search(&search_area);
+ //
+ //    for i in &search_list {
+ //        println!("{}", i);
+ //    }
+ //
+ //    world_tree.relocate(1, area1);
+ //
+ //    let search_list = world_tree.search(&search_area);
+ //
+ //    for i in &search_list {
+ //        println!("{}", i);
+ //    }
 
     // println!("{}", world_tree.size())
 }
