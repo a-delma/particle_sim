@@ -2,6 +2,23 @@
 @group(0) @binding(1) var mySampler: sampler;
 @group(1) @binding(0) var<uniform> view_projection: mat4x4<f32>;
 
+// Each particle is drawn as a square. The fragment shader turns that square into a
+// point light: a white-hot centre plus a coloured glow that fades smoothly to zero
+// before the square's edge. The pipeline adds every particle's light on top of what is
+// already on screen, so overlapping glows brighten each other.
+//
+// Distances below are measured in "quad units": 0 at the particle's centre, 1 at the
+// middle of the square's edge.
+
+// Radius of the white-hot centre. Too small and it drops below one pixel and flickers.
+const CORE_RADIUS: f32 = 0.12;
+// Brightness of the glow around the centre, relative to the centre's peak of 1.
+const HALO_STRENGTH: f32 = 0.35;
+// How fast the glow fades. Larger = a tighter glow.
+const HALO_FALLOFF: f32 = 60.0;
+// Colour the glow is tinted towards, multiplied by the particle's own colour.
+const HALO_TINT: vec3<f32> = vec3<f32>(0.55, 0.8, 1.0);
+
 struct Vertex {
     // Mesh Vertex data (slot 0)
     @location(0) position: vec3<f32>,
@@ -16,7 +33,8 @@ struct Vertex {
 struct VertexPayload {
     @builtin(position) position: vec4<f32>,
     @location(0) color: vec3<f32>,
-    @location(1) texCoord: vec2<f32>,
+    // position inside the quad, from -1 to 1 on each axis
+    @location(1) uv: vec2<f32>,
 };
 
 @vertex
@@ -27,32 +45,29 @@ fn vs_main(vertex: Vertex) -> VertexPayload {
     out.position += vec4<f32>(vertex.offset, 0.0, 0.0);
     out.position = view_projection * out.position;
 
-    out.texCoord = vec2<f32>(vertex.position.x, vertex.position.y);
-    out.color = vertex.inst_color; 
-    // UV inside the quad, ignoring offset
+    // The quad's corners are at ±0.5; doubling gives ±1 so the edge is at distance 1.
+    out.uv = vertex.position.xy * 2.0;
+    out.color = vertex.inst_color;
 
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexPayload) -> @location(0) vec4f {
-    // Distance from center of particle (0.5, 0.5)
-    let dist = length(in.texCoord);
-    
-    let innerRadius = 0.05;
-    let outerRadius = 0.85;
-    let delta = 0.05;
-    let innerGlow = 0.5 * (1 + smoothstep(innerRadius, 0, dist));
-    let innerStep = 0.5 * smoothstep(innerRadius-delta,innerRadius+delta, dist);
-    let innerIntensity = innerGlow - innerStep;
+    let d2 = dot(in.uv, in.uv); // squared distance from the centre
 
-    let outerGlow = smoothstep(innerRadius, outerRadius, dist);
-    var outerIntensity = max(innerStep - (outerGlow), 0);
-    outerIntensity = outerIntensity * outerIntensity * outerIntensity;
+    // White-hot centre: a Gaussian, 1 at the centre and falling off very quickly.
+    let core = exp(-d2 / (CORE_RADIUS * CORE_RADIUS));
 
-    let innerColor = 0.75 * (in.color * innerIntensity);
-    let outerColor = 0.75 * vec3f(0.0, 1.0, 1.0) * outerIntensity;
-    
-    return vec4f(innerColor + outerColor, innerIntensity + outerIntensity);
+    // Glow: falls off like 1 / distance², the way real light does. The "1 +" keeps it
+    // finite at the centre.
+    let glow = HALO_STRENGTH / (1.0 + HALO_FALLOFF * d2);
+
+    // 1 / distance² never actually reaches zero, which would leave a visible square
+    // outline. This factor brings it smoothly down to exactly 0 at distance 1.
+    let fade = saturate(1.0 - d2);
+    let halo = glow * fade * fade;
+
+    let color = vec3f(1.0) * core + in.color * HALO_TINT * halo;
+    return vec4f(color, 1.0);
 }
-

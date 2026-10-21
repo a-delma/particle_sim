@@ -189,7 +189,7 @@ impl<'a> State<'a> {
         for i in 0..quads.len() {
             particles.push(ParticleInstance {
                 position: [quads[i].pos.x, quads[i].pos.y],
-                size: 0.05,
+                size: 0.08,
                 color: [1.0, 0.9, 0.8],
             });
         }
