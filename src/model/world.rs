@@ -54,7 +54,7 @@ impl World {
                     rng.random_range(-1.0..1.0),
                     0.0,
                 ),
-                velocity: Vec2::new(0.00, 0.0),
+                velocity: Vec2::new(0.50, -0.25),
                 size: 1.0,
             });
         }
@@ -93,7 +93,6 @@ impl World {
                 });
             }
         }
-
         objects
     }
 
@@ -102,9 +101,26 @@ impl World {
     }
 
     pub fn update(&mut self, dt: f32) {
-        // for object in &mut self.quads {
-        //     object.position.x += object.velocity.x * dt;
-        //     object.position.y += object.velocity.y * dt;
-        // }
+        for (object, i) in self.world_tree.get_mut_items() {
+            object.position.x += object.velocity.x * dt;
+            object.position.y += object.velocity.y * dt;
+
+            if object.position.x > 1.0 {
+                object.position.x = 1.0;
+                object.velocity.x = - object.velocity.x;
+            } else if object.position.x < -1.0 {
+                object.position.x = -1.0;
+                object.velocity.x = - object.velocity.x;
+            }       
+
+            if object.position.y > 1.0 {
+                object.position.y = 1.0;
+                object.velocity.y = - object.velocity.y;
+            } else if object.position.y < -1.0 {
+                object.position.y = -1.0;
+                object.velocity.y = - object.velocity.y;
+            }
+
+        }
     }
 }
