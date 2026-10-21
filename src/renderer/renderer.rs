@@ -1,7 +1,7 @@
 use glfw::Window;
 use nalgebra_glm::ortho;
 
-use crate::model::game_object::Object;
+use crate::model::quad_tree::Body;
 use crate::renderer::backend::{
     bind_group_layout,
     definitions::{ParticleInstance, Vertex},
@@ -184,11 +184,11 @@ impl<'a> State<'a> {
         self.projection_ubo.upload(&ortho, &self.queue);
     }
 
-    fn update_transformations(&mut self, quads: Vec<&Object>) {
+    fn update_transformations(&mut self, quads: &[Body]) {
         let mut particles: Vec<ParticleInstance> = Vec::new();
         for i in 0..quads.len() {
             particles.push(ParticleInstance {
-                position: [quads[i].position.x, quads[i].position.y],
+                position: [quads[i].pos.x, quads[i].pos.y],
                 size: 0.05,
                 color: [1.0, 0.9, 0.8],
             });
@@ -200,12 +200,12 @@ impl<'a> State<'a> {
             .upload(0, &particles, &self.queue);
     }
 
-    pub fn render(&mut self, items: Vec<(&Object, usize)>) -> Result<(), wgpu::SurfaceError> {
+    pub fn render(&mut self, items: &[Body]) -> Result<(), wgpu::SurfaceError> {
         self.device.poll(wgpu::MaintainBase::Wait).ok();
 
         self.update_projection();
-        let quads = items.iter().map(|(item, _)| *item).collect();
-        self.update_transformations(quads);
+        // let quads = items.iter().map(|(item, _)| *item).collect();
+        self.update_transformations(items);
 
         let event = self.queue.submit([]);
         let maintain = wgpu::MaintainBase::WaitForSubmissionIndex(event);

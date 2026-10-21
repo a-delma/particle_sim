@@ -4,6 +4,9 @@ use renderer::renderer::State;
 mod model;
 use model::world::{World, SpawnPattern};
 
+use std::time::Instant;
+const DT: f32 = 1.0 / 60.0;
+
 async fn run() {
     let mut glfw = glfw::init(fail_on_errors!()).unwrap();
     glfw.window_hint(WindowHint::ClientApi(ClientApiHint::NoApi));
@@ -19,12 +22,21 @@ async fn run() {
     state.window.set_pos_polling(true);
 
     let object_count: usize = 1000;
-    let mut world = World::new(object_count, SpawnPattern::Random);
-    state.build_ibo_for_object(object_count);
+    let mut world = World::new(object_count, SpawnPattern::Disc);
+    state.build_ibo_for_object(world.bodies().len());
     state.build_ubos_for_objects(1);
 
+    let mut last = Instant::now();
+    let mut accumulator = 0.0;
+
     while !state.window.should_close() {
-        world.update(0.01667);
+        let now = Instant::now();
+        accumulator += (now - last).as_secs_f32().min(0.25);
+        last = now;
+        while accumulator >= DT {
+            world.update(DT);
+            accumulator -= DT;
+        }
         glfw.poll_events();
         for (_, event) in glfw::flush_messages(&events) {
             match event {
@@ -48,7 +60,7 @@ async fn run() {
             }
         }
 
-        match state.render(world.get_items()) {
+        match state.render(world.bodies()) {
             Ok(_) => {}
             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                 state.update_surface();
