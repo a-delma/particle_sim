@@ -1,5 +1,6 @@
 use crate::model::quad_tree::{Body, QuadTree};
 
+use rayon::prelude::*;
 use glm::{Vec2};
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
@@ -15,7 +16,10 @@ const SOFTENING2: f32 = 1e-3;
 const RESTITUTION: f32 = 0.5;
 const MERGE_DEPTH: f32 = 0.5;
 const SEPARATION_RATE: f32 = 0.3;
-const SEPARATION_SLOP: f32 = 0.05;
+const SEPARATION_SLOP: f32 = 0.5;
+
+/// Other Consts
+const EDGE_BOOST: f32 = 0.05;
 
 pub enum SpawnPattern {
     Random,
@@ -37,22 +41,25 @@ pub struct World {
 
 impl World {
     pub fn new(count: usize, pattern: SpawnPattern) -> Self {
+        let is_disc = matches!(pattern, SpawnPattern::Disc);
         let quads = match pattern {
             SpawnPattern::Random => Self::create_random_objects(count),
             SpawnPattern::Circle => Self::create_circle_objects(count, 0.5),
             SpawnPattern::Grid => Self::create_grid_objects(count, 0.5),
-            SpawnPattern::Disc => Self::create_disc_objects(count),
+            SpawnPattern::Disc => Self::create_exponential_disc_objects(count),
         };
  
-        let world_tree = QuadTree::new(8, 16);
-        World { 
+        let mut world = World { 
             bodies: quads, 
-            tree: world_tree, 
+            tree: QuadTree::new(8, 16), 
             stack: Vec::new(), 
             acc: Vec::new(), 
             pairs: Vec::new(), 
             alive: Vec::new()
-        } 
+        };
+
+        if is_disc { world.set_circular_velocities(); }
+        world
     }
 
     fn create_random_objects(count: usize) -> Vec<Body> {
@@ -116,8 +123,8 @@ impl World {
     fn create_disc_objects(count: usize) -> Vec<Body> {
         const DISC_RADIUS: f32 = 0.8;
         // keeps the innermost orbits clear of the central body
-        const INNER_RADIUS: f32 = 0.05;
-        const CENTRAL_MASS: f32 = 0.15;
+        const INNER_RADIUS: f32 = 0.15;
+        const CENTRAL_MASS: f32 = 0.9;
         // total, shared between all disc bodies
         const DISC_MASS: f32 = 0.08;
 
@@ -132,14 +139,74 @@ impl World {
         });
 
         let body_mass = DISC_MASS / count.max(1) as f32;
-        let min_fraction = (INNER_RADIUS / DISC_RADIUS).powi(2);
         for _ in 0..count {
             let angle = rng.random_range(0.0..std::f32::consts::TAU);
             // the square root spreads bodies evenly by area instead of bunching them at the centre
-            let r = DISC_RADIUS * rng.random_range(min_fraction..1.0f32).sqrt();
+            // let r = DISC_RADIUS * rng.random_range(min_fraction..1.0f32).sqrt();
+            let r = rng.random_range(INNER_RADIUS..DISC_RADIUS);
 
             // mass inside this orbit: the central body plus the part of the disc within r
-            let enclosed = CENTRAL_MASS + DISC_MASS * (r / DISC_RADIUS).powi(2);
+            let disc_fraction = (r - INNER_RADIUS) / (DISC_RADIUS - INNER_RADIUS);
+
+            let enclosed = CENTRAL_MASS + DISC_MASS * disc_fraction;
+            // faster towards the rim, where the flat disc pulls harder than the enclosed mass suggests
+            let boost = 1.0 + EDGE_BOOST * (r / DISC_RADIUS).powi(4);
+            let speed = (G * enclosed / r).sqrt() * boost;
+
+            objects.push(Body {
+                mass: body_mass,
+                pos: Vec2::new(r * angle.cos(), r * angle.sin()),
+                radius: 0.005,
+                // perpendicular to the radius
+                vel: Vec2::new(-angle.sin(), angle.cos()) * speed,
+            });
+        }
+
+        objects
+    }
+
+    fn create_exponential_disc_objects(count: usize) -> Vec<Body> {
+        const DISC_RADIUS: f32 = 1.0;
+        // keeps the innermost orbits clear of the central body
+        const INNER_RADIUS: f32 = 0.05;
+        const CENTRAL_MASS: f32 = 0.9;
+        // total, shared between all disc bodies
+        const DISC_MASS: f32 = 0.08;
+        // surface density falls by a factor of e every SCALE_LENGTH
+        const SCALE_LENGTH: f32 = 0.3;
+
+        // fraction of an untruncated exponential disc's mass inside r
+        let cumulative = |r: f32| {
+            let x = r / SCALE_LENGTH;
+            1.0 - (1.0 + x) * (-x).exp()
+        };
+        let (f_inner, f_outer) = (cumulative(INNER_RADIUS), cumulative(DISC_RADIUS));
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut objects = Vec::with_capacity(count + 1);
+
+        objects.push(Body {
+            mass: CENTRAL_MASS,
+            pos: Vec2::new(0.0, 0.0),
+            radius: 0.025,
+            vel: Vec2::new(0.0, 0.0),
+        });
+
+        let body_mass = DISC_MASS / count.max(1) as f32;
+        for _ in 0..count {
+            let angle = rng.random_range(0.0..std::f32::consts::TAU);
+            // Gamma(2, h) is the sum of two exponentials; redraw until i
+            let r = loop {
+                let u: f32 = rng.random_range(f32::EPSILON..1.0) * rng.random_range(f32::EPSILON..1.0);
+                let r = -SCALE_LENGTH * u.ln();
+                if (INNER_RADIUS..DISC_RADIUS).contains(&r) {
+                    break r;
+                }
+            };
+
+            // mass inside this orbit: the central body plus the part of the disc within r
+            let disc_fraction = (cumulative(r) - f_inner) / (f_outer - f_inner);
+            let enclosed = CENTRAL_MASS + DISC_MASS * disc_fraction;
             let speed = (G * enclosed / r).sqrt();
 
             objects.push(Body {
@@ -152,6 +219,24 @@ impl World {
         }
 
         objects
+    }
+
+    fn set_circular_velocities(&mut self) {
+        self.tree.build(&self.bodies);
+        let center = self.bodies[0].pos;
+        for i in 1..self.bodies.len() {
+            let a = self.tree.acceleration(i, &self.bodies, THETA, SOFTENING2, &mut self.stack) * G;
+            let d = self.bodies[i].pos - center;
+            let r = (d.x * d.x + d.y * d.y).sqrt();
+            if r < 1e-6 { continue; }
+            let r_hat = d * (1.0 / r);
+            let a_in = -(a.x * r_hat.x + a.y *r_hat.y);
+            let speed = (r * a_in.max(0.0)).sqrt();
+            self.bodies[i].vel = Vec2::new(-r_hat.y, r_hat.x) * speed;
+                
+        }
+        
+
     }
 
     pub fn bodies(&self) -> &[Body] {
@@ -212,29 +297,37 @@ impl World {
         }
         self.acc.resize(self.bodies.len(), Vec2::new(0.0, 0.0));
 
-        for i in 0..self.bodies.len() {
-            self.acc[i] = self.tree.acceleration(i, &self.bodies, THETA, SOFTENING2, &mut self.stack) * G;
-        }
+        let (tree, bodies) = (&self.tree, &self.bodies);
+        self.acc
+            .par_iter_mut()
+            .enumerate()
+            .for_each_init(Vec::new, |stack, (i,a)| {
+                *a = tree.acceleration(i, bodies, THETA, SOFTENING2, stack) * G;
+            });
+
+        // for i in 0..self.bodies.len() {
+        //     self.acc[i] = self.tree.acceleration(i, &self.bodies, THETA, SOFTENING2, &mut self.stack) * G;
+        // }
 
         for (b, a) in self.bodies.iter_mut().zip(&self.acc){
             b.vel = b.vel + *a * dt;
             b.pos = b.pos + b.vel * dt;
 
-            if b.pos.x > 1.0 {
-                b.pos.x = 1.0;
-                b.vel.x = -b.vel.x;
-            } else if b.pos.x < -1.0 {
-                b.pos.x = -1.0;
-                b.vel.x = -b.vel.x;
-            }
-
-            if b.pos.y > 1.0 {
-                b.pos.y = 1.0;
-                b.vel.y = -b.vel.y;
-            } else if b.pos.y < -1.0 {
-                b.pos.y = -1.0;
-                b.vel.y = -b.vel.y;
-            }
+            // if b.pos.x > 1.0 {
+            //     b.pos.x = 1.0;
+            //     b.vel.x = -b.vel.x;
+            // } else if b.pos.x < -1.0 {
+            //     b.pos.x = -1.0;
+            //     b.vel.x = -b.vel.x;
+            // }
+            //
+            // if b.pos.y > 1.0 {
+            //     b.pos.y = 1.0;
+            //     b.vel.y = -b.vel.y;
+            // } else if b.pos.y < -1.0 {
+            //     b.pos.y = -1.0;
+            //     b.vel.y = -b.vel.y;
+            // }
         }
     }
 }

@@ -172,16 +172,13 @@ impl<'a> State<'a> {
         let screen_width = self.config.width as f32;
         let screen_height = self.config.height as f32;
 
-        // let ortho = ortho(
-        //     0.0,
-        //     screen_width, // left, right
-        //     screen_height,
-        //     0.0, // bottom, top (y flipped)
-        //     -1.0,
-        //     1.0, // near, far
-        // );
-        
-        let ortho = ortho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
+        let aspect = screen_width / screen_height; 
+        let ortho = if aspect >= 1.0 {
+            ortho(-aspect, aspect, -1.0, 1.0, -1.0, 1.0)
+        } else {
+            ortho(-1.0, 1.0, -1.0 / aspect, 1.0 / aspect, -1.0, 1.0)
+        };
+        // let ortho = ortho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
 
         self.projection_ubo.upload(&ortho, &self.queue);
     }
