@@ -11,6 +11,8 @@ use crate::renderer::backend::{
     ubo::{UBO, UBOGroup},
 };
 
+const GLOW_SCALE : f32 = 8.0;
+
 pub struct State<'a> {
     instance: wgpu::Instance,
     surface: wgpu::Surface<'a>,
@@ -189,7 +191,7 @@ impl<'a> State<'a> {
         for i in 0..quads.len() {
             particles.push(ParticleInstance {
                 position: [quads[i].pos.x, quads[i].pos.y],
-                size: 0.08,
+                size: quads[i].radius * GLOW_SCALE,
                 color: [1.0, 0.9, 0.8],
             });
         }
@@ -257,7 +259,7 @@ impl<'a> State<'a> {
                 self.quad_mesh.buffer.slice(self.quad_mesh.offset..),
                 wgpu::IndexFormat::Uint16,
             );
-            renderpass.draw_indexed(0..6, 0, 0..self.ibo.as_ref().unwrap().count as u32);
+            renderpass.draw_indexed(0..6, 0, 0..items.len() as u32);
         }
         self.queue.submit(std::iter::once(command_encoder.finish()));
 

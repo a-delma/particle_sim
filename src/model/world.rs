@@ -7,8 +7,15 @@ use rand::{RngExt, SeedableRng};
 /// Gravitational constant. The disc's masses are chosen for G = 1.
 pub const G: f32 = 1.0;
 
+/// Approximation constants
 const THETA: f32 = 0.5;
 const SOFTENING2: f32 = 1e-3;
+
+/// Collision Constants
+const RESTITUTION: f32 = 0.5;
+const MERGE_DEPTH: f32 = 0.5;
+const SEPARATION_RATE: f32 = 0.3;
+const SEPARATION_SLOP: f32 = 0.05;
 
 pub enum SpawnPattern {
     Random,
@@ -24,7 +31,8 @@ pub struct World {
 
     stack: Vec<u32>,
     acc: Vec<Vec2>,
-    pairs: Vec<(u32, u32)>
+    pairs: Vec<(u32, u32)>,
+    alive: Vec<bool>
 }
 
 impl World {
@@ -37,8 +45,14 @@ impl World {
         };
  
         let world_tree = QuadTree::new(8, 16);
-        World { bodies: quads, tree: world_tree, stack: Vec::new(), acc: Vec::new(), pairs: Vec::new() }
- 
+        World { 
+            bodies: quads, 
+            tree: world_tree, 
+            stack: Vec::new(), 
+            acc: Vec::new(), 
+            pairs: Vec::new(), 
+            alive: Vec::new()
+        } 
     }
 
     fn create_random_objects(count: usize) -> Vec<Body> {
@@ -103,7 +117,7 @@ impl World {
         const DISC_RADIUS: f32 = 0.8;
         // keeps the innermost orbits clear of the central body
         const INNER_RADIUS: f32 = 0.05;
-        const CENTRAL_MASS: f32 = 0.1;
+        const CENTRAL_MASS: f32 = 0.15;
         // total, shared between all disc bodies
         const DISC_MASS: f32 = 0.08;
 
@@ -113,7 +127,7 @@ impl World {
         objects.push(Body {
             mass: CENTRAL_MASS,
             pos: Vec2::new(0.0, 0.0),
-            radius: 0.03,
+            radius: 0.05,
             vel: Vec2::new(0.0, 0.0),
         });
 
@@ -144,9 +158,58 @@ impl World {
         &self.bodies
     }
 
+    fn resolve_collisions(&mut self) -> bool {
+        self.tree.collision_pairs(&self.bodies, &mut self.stack, &mut self.pairs);
+        if self.pairs.is_empty() { return false; }
+
+        self.alive.clear();
+        self.alive.resize(self.bodies.len(), true);
+        let mut merged = false;
+
+        for p in 0..self.pairs.len() {
+            let (i, j) = (self.pairs[p].0 as usize, self.pairs[p].1 as usize);
+            if !self.alive[i] || !self.alive[j] { continue; }
+
+            let (a, b) = (self.bodies[i], self.bodies[j]);
+            let d = b.pos - a.pos;
+            let dist2 = d.x * d.x + d.y * d.y;
+            let contact = a.radius + b.radius;
+            if dist2 >= contact * contact { continue; }
+
+            let dv = b.vel - a.vel;
+            let dv2 = dv.x * dv.x + dv.y * dv.y;
+            let bound = dv2 < 2.0 * G * (a.mass + b.mass) / (contact * contact + SOFTENING2).sqrt();
+            if bound {
+                if dist2 < MERGE_DEPTH * MERGE_DEPTH * contact * contact {
+                    self.bodies[i] = merge(a, b);
+                    self.alive[j] = false;
+                    merged = true;
+                } 
+            } else {
+                let (a, b) = bounce(a, b, d, dist2.sqrt());
+                self.bodies[i] = a;
+                self.bodies[j] = b;
+            }
+
+        }
+
+        if merged {
+            let alive = &self.alive;
+            let mut k = 0;
+            self.bodies.retain(|_| {
+                k += 1;
+                alive[k - 1]
+            });
+        }
+        merged
+    }
+
     pub fn update(&mut self, dt: f32) {
 
         self.tree.build(&self.bodies);
+        if self.resolve_collisions() {
+            self.tree.build(&self.bodies);
+        }
         self.acc.resize(self.bodies.len(), Vec2::new(0.0, 0.0));
 
         for i in 0..self.bodies.len() {
@@ -173,5 +236,162 @@ impl World {
                 b.vel.y = -b.vel.y;
             }
         }
+    }
+}
+
+fn merge(a: Body, b: Body) -> Body {
+    let mass = a.mass + b.mass;
+    let (wa, wb) = (a.mass / mass, b.mass / mass);
+    Body {
+        mass,
+        pos: a.pos * wa + b.pos * wb,
+        vel: a.vel * wa + b.vel * wb,
+        radius: (a.radius * a.radius + b.radius * b.radius).sqrt()
+    }
+}
+
+fn bounce(mut a: Body, mut b: Body, d: Vec2, dist: f32) -> (Body, Body) {
+    let n = if dist > 1e-9 { d * (1.0 / dist) } else { Vec2::new(1.0, 0.0) };
+
+    let (inv_a, inv_b) = (1.0 / a.mass, 1.0 / b.mass);
+
+    let dv = b.vel - a.vel;
+    let vn = dv.x * n.x + dv.y * n.y;
+    
+    if vn < 0.0 {
+        let j = -(1.0 + RESTITUTION) * vn / (inv_a + inv_b);
+        a.vel = a.vel - n * (j * inv_a);
+        b.vel = b.vel + n * (j * inv_b);
+    }
+
+    let contact = a.radius + b.radius;
+    let overlap = contact - dist;
+    let correction = (overlap - SEPARATION_SLOP * contact).max(0.0) * SEPARATION_RATE;
+    let share = correction / (inv_a + inv_b);
+    a.pos = a.pos - n * (share * inv_a);
+    b.pos = b.pos + n * (share * inv_b);
+    (a, b)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn body(x: f32, vx: f32, mass: f32, radius: f32) -> Body {
+        Body { pos: Vec2::new(x, 0.0), vel: Vec2::new(vx, 0.0), mass, radius }
+    }
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-5
+    }
+
+    fn collide(bodies: Vec<Body>) -> World {
+        let mut w = World {
+            bodies,
+            tree: QuadTree::new(8, 16),
+            stack: Vec::new(),
+            acc: Vec::new(),
+            pairs: Vec::new(),
+            alive: Vec::new(),
+        };
+        w.tree.build(&w.bodies);
+        w.resolve_collisions();
+        w
+    }
+
+    #[test]
+    fn slow_deep_overlapping_pair_merges() {
+        let w = collide(vec![body(0.0, 0.0, 1.0, 0.03), body(0.02, -0.1, 3.0, 0.04)]);
+        assert_eq!(w.bodies.len(), 1);
+        let b = w.bodies[0];
+        assert!(close(b.mass, 4.0), "mass {}", b.mass);
+        assert!(close(b.vel.x * b.mass, -0.3), "momentum {}", b.vel.x * b.mass);
+        assert!(close(b.pos.x, 0.015), "center of mass {}", b.pos.x);
+        assert!(close(b.radius, 0.05), "radius {}", b.radius);
+    }
+
+    #[test]
+    fn slow_shallow_overlapping_pair_is_left_for_gravity() {
+        // halfway between the merge depth and first contact
+        let x = 0.02 * (MERGE_DEPTH + 1.0) / 2.0;
+        let w = collide(vec![body(0.0, 0.0, 1.0, 0.01), body(x, 0.0, 1.0, 0.01)]);
+        assert_eq!(w.bodies.len(), 2);
+        assert_eq!(w.bodies[0].pos.x, 0.0);
+        assert_eq!(w.bodies[1].pos.x, x);
+    }
+
+    /// Gap after one `bounce` between two r = 0.01 bodies that start 0.005 apart.
+    fn gap_after_bounce() -> f32 {
+        let (contact, start) = (0.02, 0.005);
+        start + (contact - start - SEPARATION_SLOP * contact).max(0.0) * SEPARATION_RATE
+    }
+
+    #[test]
+    fn fast_overlapping_pair_bounces() {
+        let w = collide(vec![body(0.0, 50.0, 1.0, 0.01), body(0.005, -50.0, 3.0, 0.01)]);
+        assert_eq!(w.bodies.len(), 2);
+        let (a, b) = (w.bodies[0], w.bodies[1]);
+        let momentum = a.vel.x + 3.0 * b.vel.x;
+        assert!(close(momentum, -100.0), "momentum {momentum}");
+        // separating at RESTITUTION times the approach speed of 100
+        let separation_speed = b.vel.x - a.vel.x;
+        assert!(close(separation_speed, 100.0 * RESTITUTION), "separation speed {separation_speed}");
+        // pushed apart by part of the overlap, and the heavier body moved a third as far
+        assert!(close(b.pos.x - a.pos.x, gap_after_bounce()), "gap {}", b.pos.x - a.pos.x);
+        assert!(close(-a.pos.x, 3.0 * (b.pos.x - 0.005)), "push split {} {}", a.pos.x, b.pos.x);
+    }
+
+    #[test]
+    fn separating_overlapping_pair_is_only_pushed_apart() {
+        let w = collide(vec![body(0.0, -50.0, 1.0, 0.01), body(0.005, 50.0, 1.0, 0.01)]);
+        assert_eq!(w.bodies.len(), 2);
+        assert_eq!(w.bodies[0].vel.x, -50.0);
+        assert_eq!(w.bodies[1].vel.x, 50.0);
+        let gap = w.bodies[1].pos.x - w.bodies[0].pos.x;
+        assert!(close(gap, gap_after_bounce()), "gap {gap}");
+    }
+
+    #[test]
+    fn overlap_within_slop_is_not_pushed() {
+        let x = 0.02 * (1.0 - SEPARATION_SLOP / 2.0);
+        let w = collide(vec![body(0.0, 50.0, 1.0, 0.01), body(x, -50.0, 1.0, 0.01)]);
+        assert_eq!(w.bodies[0].pos.x, 0.0);
+        assert_eq!(w.bodies[1].pos.x, x);
+    }
+
+    #[test]
+    fn separate_pair_is_untouched() {
+        let w = collide(vec![body(0.0, 0.0, 1.0, 0.01), body(0.5, 0.0, 1.0, 0.01)]);
+        assert_eq!(w.bodies.len(), 2);
+        assert_eq!(w.bodies[0].pos.x, 0.0);
+        assert_eq!(w.bodies[1].pos.x, 0.5);
+    }
+
+    #[test]
+    fn body_absorbs_several_neighbours_in_one_step() {
+        // the second merge only passes MERGE_DEPTH because the first one moved and grew body 0
+        let w = collide(vec![
+            body(0.0, 0.0, 1.0, 0.01),
+            body(-0.006, 0.0, 1.0, 0.01),
+            body(0.006, 0.0, 1.0, 0.01),
+        ]);
+        assert_eq!(w.bodies.len(), 1);
+        assert!(close(w.bodies[0].mass, 3.0));
+        assert!(close(w.bodies[0].pos.x, 0.0));
+    }
+
+    #[test]
+    fn merged_bodies_are_removed_from_the_middle() {
+        // only the middle two overlap, so the outer bodies must survive in place
+        let w = collide(vec![
+            body(-0.5, 0.0, 1.0, 0.01),
+            body(0.0, 0.0, 1.0, 0.01),
+            body(0.005, 0.0, 1.0, 0.01),
+            body(0.5, 0.0, 1.0, 0.01),
+        ]);
+        assert_eq!(w.bodies.len(), 3);
+        assert_eq!(w.bodies[0].pos.x, -0.5);
+        assert!(close(w.bodies[1].mass, 2.0));
+        assert_eq!(w.bodies[2].pos.x, 0.5);
     }
 }

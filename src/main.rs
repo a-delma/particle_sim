@@ -5,7 +5,7 @@ mod model;
 use model::world::{World, SpawnPattern};
 
 use std::time::Instant;
-const DT: f32 = 1.0 / 60.0;
+const DT: f32 = 1.0 / 120.0;
 
 async fn run() {
     let mut glfw = glfw::init(fail_on_errors!()).unwrap();
@@ -21,7 +21,7 @@ async fn run() {
     state.window.set_mouse_button_polling(true);
     state.window.set_pos_polling(true);
 
-    let object_count: usize = 1000;
+    let object_count: usize = 3000;
     let mut world = World::new(object_count, SpawnPattern::Disc);
     state.build_ibo_for_object(world.bodies().len());
     state.build_ubos_for_objects(1);
