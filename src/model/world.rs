@@ -19,8 +19,8 @@ const SEPARATION_RATE: f32 = 0.3;
 const SEPARATION_SLOP: f32 = 0.5;
 
 /// Other Consts
-const EDGE_BOOST: f32 = 0.05;
 const SPEED_SPREAD: f32 = 0.05;
+const CULL_RADIUS: f32 = 10.0;
 
 pub enum SpawnPattern {
     Random,
@@ -115,54 +115,6 @@ impl World {
                 });
             }
         }
-        objects
-    }
-
-    /// `count` light bodies in a disc around one heavy central body, so `count + 1`
-    /// bodies in total. Each starts at the circular-orbit speed for the mass inside
-    /// its radius, moving counter-clockwise.
-    fn create_disc_objects(count: usize) -> Vec<Body> {
-        const DISC_RADIUS: f32 = 0.8;
-        // keeps the innermost orbits clear of the central body
-        const INNER_RADIUS: f32 = 0.01;
-        const CENTRAL_MASS: f32 = 0.9;
-        // total, shared between all disc bodies
-        const DISC_MASS: f32 = 0.08;
-
-        let mut rng = StdRng::seed_from_u64(42);
-        let mut objects = Vec::with_capacity(count + 1);
-
-        objects.push(Body {
-            mass: CENTRAL_MASS,
-            pos: Vec2::new(0.0, 0.0),
-            radius: 0.02,
-            vel: Vec2::new(0.0, 0.0),
-        });
-
-        let body_mass = DISC_MASS / count.max(1) as f32;
-        for _ in 0..count {
-            let angle = rng.random_range(0.0..std::f32::consts::TAU);
-            // the square root spreads bodies evenly by area instead of bunching them at the centre
-            // let r = DISC_RADIUS * rng.random_range(min_fraction..1.0f32).sqrt();
-            let r = rng.random_range(INNER_RADIUS..DISC_RADIUS);
-
-            // mass inside this orbit: the central body plus the part of the disc within r
-            let disc_fraction = (r - INNER_RADIUS) / (DISC_RADIUS - INNER_RADIUS);
-
-            let enclosed = CENTRAL_MASS + DISC_MASS * disc_fraction;
-            // faster towards the rim, where the flat disc pulls harder than the enclosed mass suggests
-            let boost = 1.0 + EDGE_BOOST * (r / DISC_RADIUS).powi(4);
-            let speed = (G * enclosed / r).sqrt() * boost;
-
-            objects.push(Body {
-                mass: body_mass,
-                pos: Vec2::new(r * angle.cos(), r * angle.sin()),
-                radius: 0.002,
-                // perpendicular to the radius
-                vel: Vec2::new(-angle.sin(), angle.cos()) * speed,
-            });
-        }
-
         objects
     }
 
@@ -323,26 +275,21 @@ impl World {
         //     self.acc[i] = self.tree.acceleration(i, &self.bodies, THETA, SOFTENING2, &mut self.stack) * G;
         // }
 
+        let c = self.bodies[0];
         for (b, a) in self.bodies.iter_mut().zip(&self.acc){
             b.vel = b.vel + *a * dt;
             b.pos = b.pos + b.vel * dt;
 
-            // if b.pos.x > 1.0 {
-            //     b.pos.x = 1.0;
-            //     b.vel.x = -b.vel.x;
-            // } else if b.pos.x < -1.0 {
-            //     b.pos.x = -1.0;
-            //     b.vel.x = -b.vel.x;
-            // }
-            //
-            // if b.pos.y > 1.0 {
-            //     b.pos.y = 1.0;
-            //     b.vel.y = -b.vel.y;
-            // } else if b.pos.y < -1.0 {
-            //     b.pos.y = -1.0;
-            //     b.vel.y = -b.vel.y;
-            // }
+            // reframing around the central mass
+            b.pos = b.pos - c.pos;
+            b.vel = b.vel - c.vel;
         }
+        let c = c.pos;
+        self.bodies.retain(|b| {
+            let d = b.pos - c;
+            d.x * d.x + d.y * d.y < CULL_RADIUS * CULL_RADIUS
+        });
+
     }
 }
 
