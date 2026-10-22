@@ -26,6 +26,12 @@ impl<T: Pod> IBO<T> {
         }
     }
 
+    pub fn reserve(&mut self, device: &wgpu::Device, needed: usize) {
+        if needed > self.count {
+            *self = Self::new(device, needed * 2);
+        }
+    }
+
     pub fn upload(&self, offset_index: usize, data: &[T], queue: &wgpu::Queue,) {
         let offset_bytes = offset_index as u64 * std::mem::size_of::<T>() as u64;
         queue.write_buffer(&self.buffer, offset_bytes, bytemuck::cast_slice(data));

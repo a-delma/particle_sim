@@ -1,5 +1,6 @@
 use glfw::{Action, ClientApiHint, Glfw, GlfwReceiver, Key, PWindow, WindowEvent, WindowHint, fail_on_errors};
 mod renderer;
+use glm::{Vec2, Vector2};
 use renderer::renderer::State;
 mod model;
 use model::world::{World, SpawnPattern};
@@ -114,6 +115,48 @@ async fn run() {
                     state.update_surface();
                     state.resize((width, height));
                 }
+
+                glfw::WindowEvent::MouseButton(glfw::MouseButtonLeft, Action::Press, _) => {
+                    let (px, py) = state.window.get_cursor_pos();
+                    let (w, h) = state.window.get_size();
+                    let (w, h) = (w as f32, h as f32);
+
+                    let nx = 2.0 * px as f32 / w - 1.0;
+                    let ny = 1.0 - 2.0 * py as f32 / h;
+
+                    let aspect = w / h;
+                    let target = if aspect >= 1.0 {
+                        Vec2::new(nx * aspect, ny)
+                    } else {
+                        Vec2::new(nx, ny / aspect)
+                    };
+
+                    let half = if aspect >= 1.0 {
+                        Vec2::new(aspect, 1.0)
+                    } else {
+                        Vec2::new(1.0, 1.0 / aspect)
+                    };
+                    let start = offscreen_start(target, half, 0.2);
+                    
+                    world.add_body(
+                        start,   // start: off-screen, top right
+                        target,  // target: just below the center, so it curves past instead of plunging in
+                        5.0,                   // speed, world units per sim second
+                        0.02,                  // mass
+                        0.01,                  // radius
+                    );
+
+                }
+
+                glfw::WindowEvent::Key(Key::Space, _, Action::Press, _) => {
+                    world.add_body(
+                        Vec2::new(2.2, 1.4),   // start: off-screen, top right
+                        Vec2::new(0.0, -0.4),  // target: just below the center, so it curves past instead of plunging in
+                        1.5,                   // speed, world units per sim second
+                        0.02,                  // mass
+                        0.01,                  // radius
+                    );
+                }
                 _ => {}
             }
         }
@@ -126,6 +169,24 @@ async fn run() {
             }
             Err(e) => eprintln!("{:?}", e),
         }
+    }
+}
+
+fn offscreen_start(target: Vec2, half: Vec2, margin: f32) -> Vec2 {
+    let left = target.x + half.x;
+    let right = half.x - target.x;
+    let bottom = target.y + half.y;
+    let top = half.y - target.y;
+
+    let nearest = left.min(right).min(bottom).min(top);
+    if nearest == left {
+        Vec2::new(-half.x - margin, target.y)
+    } else if nearest == right {
+        Vec2::new(half.x + margin, target.y)
+    } else if nearest == bottom {
+        Vec2::new(target.x, -half.y - margin)
+    } else {
+        Vec2::new(target.x, half.y + margin)
     }
 }
 

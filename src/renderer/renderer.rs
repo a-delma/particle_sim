@@ -195,10 +195,9 @@ impl<'a> State<'a> {
             });
         }
 
-        self.ibo
-            .as_mut()
-            .unwrap()
-            .upload(0, &particles, &self.queue);
+        let ibo = self.ibo.as_mut().unwrap();
+        ibo.reserve(&self.device, particles.len());
+        ibo.upload(0, &particles, &self.queue);
     }
 
     pub fn render(&mut self, items: &[Body]) -> Result<(), wgpu::SurfaceError> {

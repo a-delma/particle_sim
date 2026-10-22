@@ -246,6 +246,13 @@ impl World {
 
     }
 
+    pub fn add_body(&mut self, start: Vec2, target: Vec2, speed: f32, mass: f32, radius: f32) {
+       let d = target - start;
+       let len = (d.x * d.x + d.y * d.y).sqrt();
+       let dir = if len > 1e-6 { d * (1.0 / len) } else { Vec2::new(0.0, 0.0) };
+       self.bodies.push(Body { pos: start, vel: dir * speed, mass, radius });
+    }
+
     pub fn bodies(&self) -> &[Body] {
         &self.bodies
     }
