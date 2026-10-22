@@ -18,6 +18,13 @@ const MERGE_DEPTH: f32 = 0.75;
 const SEPARATION_RATE: f32 = 0.3;
 const SEPARATION_SLOP: f32 = 0.5;
 
+/// Shatter Constants
+const FRAGMENTS: usize = 5;
+const FRAGMENT_SPEED: f32 = 0.75;
+const SHATTER_RATIO: f32 = 1.0;
+const MIN_SHATTER_MASS: f32 = 1e-4;
+
+
 /// Other Consts
 const SPEED_SPREAD: f32 = 0.05;
 const CULL_RADIUS: f32 = 10.0;
@@ -37,7 +44,8 @@ pub struct World {
     stack: Vec<u32>,
     acc: Vec<Vec2>,
     pairs: Vec<(u32, u32)>,
-    alive: Vec<bool>
+    alive: Vec<bool>,
+    spawned: Vec<Body>
 }
 
 impl World {
@@ -56,7 +64,8 @@ impl World {
             stack: Vec::new(), 
             acc: Vec::new(), 
             pairs: Vec::new(), 
-            alive: Vec::new()
+            alive: Vec::new(),
+            spawned: Vec::new(),
         };
 
         if is_disc { world.set_circular_velocities(); }
@@ -122,9 +131,9 @@ impl World {
         const DISC_RADIUS: f32 = 1.0;
         // keeps the innermost orbits clear of the central body
         const INNER_RADIUS: f32 = 0.05;
-        const CENTRAL_MASS: f32 = 0.9;
+        const CENTRAL_MASS: f32 = 0.5;
         // total, shared between all disc bodies
-        const DISC_MASS: f32 = 0.08;
+        const DISC_MASS: f32 = 0.5;
         // surface density falls by a factor of e every SCALE_LENGTH
         const SCALE_LENGTH: f32 = 0.3;
 
@@ -209,13 +218,14 @@ impl World {
         &self.bodies
     }
 
+    
     fn resolve_collisions(&mut self) -> bool {
         self.tree.collision_pairs(&self.bodies, &mut self.stack, &mut self.pairs);
         if self.pairs.is_empty() { return false; }
 
         self.alive.clear();
         self.alive.resize(self.bodies.len(), true);
-        let mut merged = false;
+        let mut changed = false;
 
         for p in 0..self.pairs.len() {
             let (i, j) = (self.pairs[p].0 as usize, self.pairs[p].1 as usize);
@@ -229,13 +239,29 @@ impl World {
 
             let dv = b.vel - a.vel;
             let dv2 = dv.x * dv.x + dv.y * dv.y;
-            let bound = dv2 < 2.0 * G * (a.mass + b.mass) / (contact * contact + SOFTENING2).sqrt();
+            let v_esc2 = 2.0 * G * (a.mass + b.mass) / (contact * contact + SOFTENING2).sqrt();
+            let bound = dv2 < v_esc2;
+
+            let mass = a.mass + b.mass;
+            let q2 = dv2 * (a.mass * b.mass / mass) / mass;
+
+            let shatter = q2 > SHATTER_RATIO * SHATTER_RATIO * v_esc2
+                && mass >= MIN_SHATTER_MASS
+                && i != 0;
             if bound {
                 if dist2 < MERGE_DEPTH * MERGE_DEPTH * contact * contact {
-                    self.bodies[i] = merge(a, b);
-                    self.alive[j] = false;
-                    merged = true;
+                    if i == 0 {
+                        self.bodies[i] = merge(a, b);
+                        self.alive[j] = false;
+                        changed = true;
+
+                    }
                 } 
+            } else if shatter {
+                shatter_into(a, b, q2.sqrt(), &mut self.spawned);
+                self.alive[i] = false;
+                self.alive[j] = false;
+                changed = true;
             } else {
                 let (a, b) = bounce(a, b, d, dist2.sqrt());
                 self.bodies[i] = a;
@@ -244,15 +270,16 @@ impl World {
 
         }
 
-        if merged {
+        if changed {
             let alive = &self.alive;
             let mut k = 0;
             self.bodies.retain(|_| {
                 k += 1;
                 alive[k - 1]
             });
+            self.bodies.extend(self.spawned.drain(..));
         }
-        merged
+        changed
     }
 
     pub fn update(&mut self, dt: f32) {
@@ -290,6 +317,27 @@ impl World {
             d.x * d.x + d.y * d.y < CULL_RADIUS * CULL_RADIUS
         });
 
+    }
+}
+
+fn shatter_into(a: Body, b: Body, impact_q: f32, out: &mut Vec<Body>) {
+    let whole = merge(a, b);
+    let n = FRAGMENTS;
+    let mass = whole.mass / n as f32;
+    let radius = whole.radius / (n as f32).sqrt();
+    let speed = impact_q * FRAGMENT_SPEED;
+
+    let d = b.pos - a.pos;
+    let base = d.y.atan2(d.x);
+    for k in 0..n {
+        let angle = base + std::f32::consts::TAU * k as f32 / n as f32;
+        let dir = Vec2::new(angle.cos(), angle.sin());
+        out.push(Body {
+            pos: whole.pos + dir * (2.0 * radius),
+            vel: whole.vel + dir * speed,
+            mass,
+            radius,
+        });
     }
 }
 
@@ -347,6 +395,7 @@ mod tests {
             acc: Vec::new(),
             pairs: Vec::new(),
             alive: Vec::new(),
+            spawned: Vec::new(),
         };
         w.tree.build(&w.bodies);
         w.resolve_collisions();
@@ -447,5 +496,34 @@ mod tests {
         assert_eq!(w.bodies[0].pos.x, -0.5);
         assert!(close(w.bodies[1].mass, 2.0));
         assert_eq!(w.bodies[2].pos.x, 0.5);
+    }
+
+    #[test]
+    fn dust_does_not_shatter_a_heavy_body() {
+        // a fast asteroid clipping a dust speck: plenty of relative speed, almost no energy
+        let w = collide(vec![
+            body(5.0, 0.0, 1e-9, 0.001), // stand-in for the central body, which never shatters
+            body(0.0, 2.0, 0.02, 0.01),
+            body(0.011, 0.0, 5e-6, 0.002),
+        ]);
+        assert_eq!(w.bodies.len(), 3);
+    }
+
+    #[test]
+    fn equal_masses_shatter_head_on_without_gaining_energy() {
+        let (a, b) = (body(0.0, 2.0, 0.01, 0.01), body(0.015, -2.0, 0.01, 0.01));
+        let energy = |bs: &[Body]| {
+            bs.iter().map(|b| 0.5 * b.mass * (b.vel.x * b.vel.x + b.vel.y * b.vel.y)).sum::<f32>()
+        };
+        let before = energy(&[a, b]);
+
+        let w = collide(vec![body(5.0, 0.0, 1e-9, 0.001), a, b]);
+        assert_eq!(w.bodies.len(), 1 + FRAGMENTS);
+
+        let fragments = &w.bodies[1..];
+        assert!(energy(fragments) <= before, "energy {} > {}", energy(fragments), before);
+        let px: f32 = fragments.iter().map(|f| f.mass * f.vel.x).sum();
+        let py: f32 = fragments.iter().map(|f| f.mass * f.vel.y).sum();
+        assert!(px.abs() < 1e-6 && py.abs() < 1e-6, "momentum ({px}, {py})");
     }
 }
