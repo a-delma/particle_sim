@@ -7,6 +7,8 @@ use rand::{RngExt, SeedableRng};
 
 /// Gravitational constant. The disc's masses are chosen for G = 1.
 pub const G: f32 = 1.0;
+/// Density of the mass-1.0 bodies in the Random, Circle and Grid patterns, giving them a radius of 0.002.
+const PATTERN_DENSITY: f32 = 1.0 / (0.002 * 0.002 * 0.002);
 
 /// Approximation constants
 const THETA: f32 = 0.5;
@@ -77,15 +79,15 @@ impl World {
         let mut objects = Vec::with_capacity(count);
 
         for _ in 0..count {
-            objects.push(Body {
-                mass: 1.0,
-                pos: Vec2::new(
+            objects.push(Body::new(
+                Vec2::new(
                     rng.random_range(-1.0..1.0),
                     rng.random_range(-1.0..1.0),
                 ),
-                radius : 0.002,
-                vel: Vec2::new(0.50, -0.25),
-            });
+                Vec2::new(0.50, -0.25),
+                1.0,
+                PATTERN_DENSITY,
+            ));
         }
 
         objects
@@ -97,12 +99,12 @@ impl World {
         for i in 0..count {
             let angle = (i as f32 / count as f32) * std::f32::consts::TAU;
 
-            objects.push(Body {
-                mass: 1.0,
-                pos: Vec2::new(radius * angle.cos(), radius * angle.sin()),
-                radius: 0.002,
-                vel: Vec2::new(angle.cos(), angle.sin()),
-            });
+            objects.push(Body::new(
+                Vec2::new(radius * angle.cos(), radius * angle.sin()),
+                Vec2::new(angle.cos(), angle.sin()),
+                1.0,
+                PATTERN_DENSITY,
+            ));
         }
 
         objects
@@ -116,12 +118,12 @@ impl World {
 
         for y in 0..height {
             for x in 0..width {
-                objects.push(Body {
-                    mass: 1.0,
-                    pos: Vec2::new(x as f32 * spacing, y as f32 * spacing),
-                    radius: 0.002,
-                    vel: Vec2::new(0.0, 0.0),
-                });
+                objects.push(Body::new(
+                    Vec2::new(x as f32 * spacing, y as f32 * spacing),
+                    Vec2::new(0.0, 0.0),
+                    1.0,
+                    PATTERN_DENSITY,
+                ));
             }
         }
         objects
@@ -131,9 +133,10 @@ impl World {
         const DISC_RADIUS: f32 = 1.0;
         // keeps the innermost orbits clear of the central body
         const INNER_RADIUS: f32 = 0.05;
-        const CENTRAL_MASS: f32 = 0.5;
+        const CENTRAL_MASS: f32 = 0.9;
+        const CENTRAL_DENSITY: f32 = CENTRAL_MASS / (0.05 * 0.05 * 0.05);
         // total, shared between all disc bodies
-        const DISC_MASS: f32 = 0.5;
+        const DISC_MASS: f32 = 0.09;
         // surface density falls by a factor of e every SCALE_LENGTH
         const SCALE_LENGTH: f32 = 0.3;
 
@@ -147,14 +150,10 @@ impl World {
         let mut rng = StdRng::seed_from_u64(42);
         let mut objects = Vec::with_capacity(count + 1);
 
-        objects.push(Body {
-            mass: CENTRAL_MASS,
-            pos: Vec2::new(0.0, 0.0),
-            radius: 0.05,
-            vel: Vec2::new(0.0, 0.0),
-        });
+        objects.push(Body::new(Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0), CENTRAL_MASS, CENTRAL_DENSITY));
 
         let body_mass = DISC_MASS / count.max(1) as f32;
+        let body_density = body_mass / (0.002_f32).powi(3);
         for _ in 0..count {
             let angle = rng.random_range(0.0..std::f32::consts::TAU);
             // Gamma(2, h) is the sum of two exponentials; redraw until i
@@ -171,13 +170,11 @@ impl World {
             let enclosed = CENTRAL_MASS + DISC_MASS * disc_fraction;
             let speed = (G * enclosed / r).sqrt();
 
-            objects.push(Body {
-                mass: body_mass,
-                pos: Vec2::new(r * angle.cos(), r * angle.sin()),
-                radius: 0.002,
-                // perpendicular to the radius
-                vel: Vec2::new(-angle.sin(), angle.cos()) * speed,
-            });
+            objects.push(Body::new(
+                    Vec2::new(r * angle.cos(), r * angle.sin()),
+                    Vec2::new(-angle.sin(), angle.cos()) * speed,
+                    body_mass, 
+                    body_density));
         }
 
         objects
@@ -207,11 +204,11 @@ impl World {
 
     }
 
-    pub fn add_body(&mut self, start: Vec2, target: Vec2, speed: f32, mass: f32, radius: f32) {
+    pub fn add_body(&mut self, start: Vec2, target: Vec2, speed: f32, mass: f32, density: f32) {
        let d = target - start;
        let len = (d.x * d.x + d.y * d.y).sqrt();
        let dir = if len > 1e-6 { d * (1.0 / len) } else { Vec2::new(0.0, 0.0) };
-       self.bodies.push(Body { pos: start, vel: dir * speed, mass, radius });
+       self.bodies.push(Body::new(start, dir * speed, mass, density));
     }
 
     pub fn bodies(&self) -> &[Body] {
@@ -250,12 +247,12 @@ impl World {
                 && i != 0;
             if bound {
                 if dist2 < MERGE_DEPTH * MERGE_DEPTH * contact * contact {
-                    if i == 0 {
+                    // if i == 0 {
                         self.bodies[i] = merge(a, b);
                         self.alive[j] = false;
                         changed = true;
 
-                    }
+                    // }
                 } 
             } else if shatter {
                 shatter_into(a, b, q2.sqrt(), &mut self.spawned);
@@ -324,7 +321,7 @@ fn shatter_into(a: Body, b: Body, impact_q: f32, out: &mut Vec<Body>) {
     let whole = merge(a, b);
     let n = FRAGMENTS;
     let mass = whole.mass / n as f32;
-    let radius = whole.radius / (n as f32).sqrt();
+    let radius = (mass / whole.density).cbrt();
     let speed = impact_q * FRAGMENT_SPEED;
 
     let d = b.pos - a.pos;
@@ -332,24 +329,15 @@ fn shatter_into(a: Body, b: Body, impact_q: f32, out: &mut Vec<Body>) {
     for k in 0..n {
         let angle = base + std::f32::consts::TAU * k as f32 / n as f32;
         let dir = Vec2::new(angle.cos(), angle.sin());
-        out.push(Body {
-            pos: whole.pos + dir * (2.0 * radius),
-            vel: whole.vel + dir * speed,
-            mass,
-            radius,
-        });
+        out.push(Body::new(whole.pos + dir * (2.0 * radius), whole.vel + dir * speed, mass, whole.density));
     }
 }
 
 fn merge(a: Body, b: Body) -> Body {
     let mass = a.mass + b.mass;
     let (wa, wb) = (a.mass / mass, b.mass / mass);
-    Body {
-        mass,
-        pos: a.pos * wa + b.pos * wb,
-        vel: a.vel * wa + b.vel * wb,
-        radius: (a.radius * a.radius + b.radius * b.radius).sqrt()
-    }
+    let volume = a.mass / a.density + b.mass / b.density;
+    Body::new(a.pos * wa + b.pos * wb, a.vel * wa + b.vel * wb, mass, mass / volume)
 }
 
 fn bounce(mut a: Body, mut b: Body, d: Vec2, dist: f32) -> (Body, Body) {
@@ -380,7 +368,7 @@ mod tests {
     use super::*;
 
     fn body(x: f32, vx: f32, mass: f32, radius: f32) -> Body {
-        Body { pos: Vec2::new(x, 0.0), vel: Vec2::new(vx, 0.0), mass, radius }
+        Body::new(Vec2::new(x, 0.0), Vec2::new(vx, 0.0), mass, mass / radius.powi(3))
     }
 
     fn close(a: f32, b: f32) -> bool {
@@ -403,6 +391,15 @@ mod tests {
     }
 
     #[test]
+    fn grain_merging_into_dense_body_barely_grows_it() {
+        // the central body and a disc particle, at their spawn densities
+        let w = collide(vec![body(0.0, 0.0, 0.9, 0.05), body(0.03, 0.0, 1.8e-6, 0.002)]);
+        assert_eq!(w.bodies.len(), 1);
+        let b = w.bodies[0];
+        assert!(close(b.radius, 0.05), "radius {}", b.radius);
+    }
+
+    #[test]
     fn slow_deep_overlapping_pair_merges() {
         let w = collide(vec![body(0.0, 0.0, 1.0, 0.03), body(0.02, -0.1, 3.0, 0.04)]);
         assert_eq!(w.bodies.len(), 1);
@@ -410,7 +407,8 @@ mod tests {
         assert!(close(b.mass, 4.0), "mass {}", b.mass);
         assert!(close(b.vel.x * b.mass, -0.3), "momentum {}", b.vel.x * b.mass);
         assert!(close(b.pos.x, 0.015), "center of mass {}", b.pos.x);
-        assert!(close(b.radius, 0.05), "radius {}", b.radius);
+        // volume is conserved: cbrt(0.03^3 + 0.04^3)
+        assert!(close(b.radius, 0.044979), "radius {}", b.radius);
     }
 
     #[test]

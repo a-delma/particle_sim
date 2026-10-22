@@ -8,6 +8,13 @@ pub struct Body {
     pub vel: Vec2,
     pub mass: f32,
     pub radius: f32,
+    pub density: f32,
+}
+
+impl Body {
+    pub fn new(pos: Vec2, vel: Vec2, mass: f32, density: f32) -> Self {
+        Body { pos, vel, mass, density, radius: (mass / density).cbrt() }
+    }
 }
 
 /// Axis-aligned square. The tree only ever subdivides squares, so one size is enough.
@@ -303,6 +310,7 @@ mod tests {
             vel: Vec2::new(0.0, 0.0),
             mass: 1.0,
             radius: 0.01,
+            density: 1.0 / (0.01 * 0.01 * 0.01),
         }
     }
 
@@ -429,6 +437,7 @@ mod tests {
             vel: Vec2::new(0.0, 0.0),
             mass,
             radius,
+            density: mass / radius.powi(3),
         }
     }
 

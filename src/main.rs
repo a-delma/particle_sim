@@ -1,13 +1,13 @@
 use glfw::{Action, ClientApiHint, Glfw, GlfwReceiver, Key, PWindow, WindowEvent, WindowHint, fail_on_errors};
 mod renderer;
-use glm::{Vec2, Vector2};
+use glm::{Vec2};
 use renderer::renderer::State;
 mod model;
 use model::world::{World, SpawnPattern};
 
 use std::time::Instant;
 const DT: f32 = 1.0 / 120.0;
-const START_BODIES: usize = 15000;
+const START_BODIES: usize = 30000;
 const TIME_SCALE: f32 = 0.25;
 const FULLSCREEN: bool = true;
 const WINDOW_TITLE: &str = "RUST_SIM";
@@ -143,7 +143,7 @@ async fn run() {
                         target,  // target: just below the center, so it curves past instead of plunging in
                         5.0,                   // speed, world units per sim second
                         0.02,                  // mass
-                        0.01,                  // radius
+                        10000.0,               // density: radius 0.01 at this mass
                     );
 
                 }
@@ -154,7 +154,7 @@ async fn run() {
                         Vec2::new(0.0, -0.4),  // target: just below the center, so it curves past instead of plunging in
                         1.5,                   // speed, world units per sim second
                         0.02,                  // mass
-                        0.01,                  // radius
+                        20000.0,               // density: radius 0.01 at this mass
                     );
                 }
                 _ => {}
