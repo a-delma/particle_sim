@@ -10,14 +10,24 @@
 // Distances below are measured in "quad units": 0 at the particle's centre, 1 at the
 // middle of the square's edge.
 
-// Radius of the white-hot centre. Too small and it drops below one pixel and flickers.
+// The particle's physical (collision) radius in quad units. The quad is
+// radius * GLOW_SCALE wide (renderer.rs), so this is 2 / GLOW_SCALE; keep them in sync.
+const BODY_RADIUS: f32 = 0.10;
+// Width of the white-hot centre, chosen so it is at half brightness exactly at
+// BODY_RADIUS: the visible core matches the size the simulation collides with.
+// BODY_RADIUS / sqrt(ln 2).
 const CORE_RADIUS: f32 = 0.12;
 // Brightness of the glow around the centre, relative to the centre's peak of 1.
-const HALO_STRENGTH: f32 = 0.35;
+const HALO_STRENGTH: f32 = 0.2;
 // How fast the glow fades. Larger = a tighter glow.
 const HALO_FALLOFF: f32 = 60.0;
-// Colour the glow is tinted towards, multiplied by the particle's own colour.
-const HALO_TINT: vec3<f32> = vec3<f32>(0.55, 0.8, 1.0);
+// The glow shifts from a light violet at the body's edge to deep purple further out.
+// Both are multiplied by the particle's own colour. The core's fringe also takes the
+// inner tint, so only the very centre stays white.
+const HALO_INNER_TINT: vec3<f32> = vec3<f32>(0.7, 0.45, 1.0);
+const HALO_EDGE_TINT: vec3<f32> = vec3<f32>(0.3, 0.04, 0.65);
+// Distance at which the glow has fully reached HALO_EDGE_TINT.
+const EDGE_TINT_DISTANCE: f32 = 0.5;
 
 struct Vertex {
     // Mesh Vertex data (slot 0)
@@ -68,6 +78,12 @@ fn fs_main(in: VertexPayload) -> @location(0) vec4f {
     let fade = saturate(1.0 - d2);
     let halo = glow * fade * fade;
 
-    let color = vec3f(1.0) * core + in.color * HALO_TINT * halo;
+    // White where the core is brightest, violet where it fades out at the body's edge.
+    let core_color = mix(HALO_INNER_TINT, vec3f(1.0), core);
+    // Violet at the body's edge, deep purple out in the glow.
+    let t = smoothstep(BODY_RADIUS, EDGE_TINT_DISTANCE, sqrt(d2));
+    let halo_color = mix(HALO_INNER_TINT, HALO_EDGE_TINT, t);
+
+    let color = core_color * core + in.color * halo_color * halo;
     return vec4f(color, 1.0);
 }

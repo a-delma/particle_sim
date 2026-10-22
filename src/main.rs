@@ -1,4 +1,4 @@
-use glfw::{Action, ClientApiHint, Key, WindowHint, fail_on_errors};
+use glfw::{Action, ClientApiHint, Glfw, GlfwReceiver, Key, PWindow, WindowEvent, WindowHint, fail_on_errors};
 mod renderer;
 use renderer::renderer::State;
 mod model;
@@ -8,16 +8,18 @@ use std::time::Instant;
 const DT: f32 = 1.0 / 120.0;
 const START_BODIES: usize = 15000;
 const TIME_SCALE: f32 = 0.25;
+const FULLSCREEN: bool = true;
+const WINDOW_TITLE: &str = "RUST_SIM";
 
-async fn run() {
-    let mut glfw = glfw::init(fail_on_errors!()).unwrap();
-    glfw.window_hint(WindowHint::ClientApi(ClientApiHint::NoApi));
+type Events = GlfwReceiver<(f64, WindowEvent)>;
+
+fn get_centered_window(glfw: &mut Glfw) -> (PWindow, Events) {
+    // Stay hidden until positioned, so the window doesn't flash at its default spot.
     glfw.window_hint(WindowHint::Visible(false));
     let (mut window, events) = glfw
-        .create_window(800, 600, "RUST_SIM", glfw::WindowMode::Windowed)
+        .create_window(800, 600, WINDOW_TITLE, glfw::WindowMode::Windowed)
         .unwrap();
 
-    // Center on the primary monitor.
     let (win_w, win_h) = window.get_size();
     let center = glfw.with_primary_monitor(|_, monitor| {
         let monitor = monitor?;
@@ -33,7 +35,33 @@ async fn run() {
     }
     window.show();
 
+    (window, events)
+}
 
+// Fullscreen on the primary monitor at its current video mode, so the display
+// resolution doesn't change.
+fn get_fs_window(glfw: &mut Glfw) -> (PWindow, Events) {
+    glfw.with_primary_monitor(|glfw, monitor| {
+        let monitor = monitor.expect("no primary monitor");
+        let mode = monitor.get_video_mode().expect("no video mode");
+        glfw.create_window(
+            mode.width,
+            mode.height,
+            WINDOW_TITLE,
+            glfw::WindowMode::FullScreen(monitor),
+        )
+    })
+    .unwrap()
+}
+
+async fn run() {
+    let mut glfw = glfw::init(fail_on_errors!()).unwrap();
+    glfw.window_hint(WindowHint::ClientApi(ClientApiHint::NoApi));
+    let (mut window, events) = if FULLSCREEN {
+        get_fs_window(&mut glfw)
+    } else {
+        get_centered_window(&mut glfw)
+    };
 
     let mut state = State::new(&mut window).await;
 

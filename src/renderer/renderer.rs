@@ -11,7 +11,9 @@ use crate::renderer::backend::{
     ubo::{UBO, UBOGroup},
 };
 
-const GLOW_SCALE : f32 = 8.0;
+// Quad width as a multiple of the body radius; the glow reaches GLOW_SCALE / 2 radii.
+// shader.wgsl's BODY_RADIUS is 2 / GLOW_SCALE, keep them in sync.
+const GLOW_SCALE : f32 = 20.0;
 
 pub struct State<'a> {
     instance: wgpu::Instance,

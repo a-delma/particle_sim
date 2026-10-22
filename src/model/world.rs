@@ -14,12 +14,13 @@ const SOFTENING2: f32 = 1e-3;
 
 /// Collision Constants
 const RESTITUTION: f32 = 0.5;
-const MERGE_DEPTH: f32 = 0.5;
+const MERGE_DEPTH: f32 = 0.75;
 const SEPARATION_RATE: f32 = 0.3;
 const SEPARATION_SLOP: f32 = 0.5;
 
 /// Other Consts
 const EDGE_BOOST: f32 = 0.05;
+const SPEED_SPREAD: f32 = 0.05;
 
 pub enum SpawnPattern {
     Random,
@@ -73,7 +74,7 @@ impl World {
                     rng.random_range(-1.0..1.0),
                     rng.random_range(-1.0..1.0),
                 ),
-                radius : 0.005,
+                radius : 0.002,
                 vel: Vec2::new(0.50, -0.25),
             });
         }
@@ -90,7 +91,7 @@ impl World {
             objects.push(Body {
                 mass: 1.0,
                 pos: Vec2::new(radius * angle.cos(), radius * angle.sin()),
-                radius: 0.005,
+                radius: 0.002,
                 vel: Vec2::new(angle.cos(), angle.sin()),
             });
         }
@@ -109,7 +110,7 @@ impl World {
                 objects.push(Body {
                     mass: 1.0,
                     pos: Vec2::new(x as f32 * spacing, y as f32 * spacing),
-                    radius: 0.005,
+                    radius: 0.002,
                     vel: Vec2::new(0.0, 0.0),
                 });
             }
@@ -123,7 +124,7 @@ impl World {
     fn create_disc_objects(count: usize) -> Vec<Body> {
         const DISC_RADIUS: f32 = 0.8;
         // keeps the innermost orbits clear of the central body
-        const INNER_RADIUS: f32 = 0.15;
+        const INNER_RADIUS: f32 = 0.01;
         const CENTRAL_MASS: f32 = 0.9;
         // total, shared between all disc bodies
         const DISC_MASS: f32 = 0.08;
@@ -134,7 +135,7 @@ impl World {
         objects.push(Body {
             mass: CENTRAL_MASS,
             pos: Vec2::new(0.0, 0.0),
-            radius: 0.05,
+            radius: 0.02,
             vel: Vec2::new(0.0, 0.0),
         });
 
@@ -156,7 +157,7 @@ impl World {
             objects.push(Body {
                 mass: body_mass,
                 pos: Vec2::new(r * angle.cos(), r * angle.sin()),
-                radius: 0.005,
+                radius: 0.002,
                 // perpendicular to the radius
                 vel: Vec2::new(-angle.sin(), angle.cos()) * speed,
             });
@@ -188,7 +189,7 @@ impl World {
         objects.push(Body {
             mass: CENTRAL_MASS,
             pos: Vec2::new(0.0, 0.0),
-            radius: 0.025,
+            radius: 0.05,
             vel: Vec2::new(0.0, 0.0),
         });
 
@@ -212,7 +213,7 @@ impl World {
             objects.push(Body {
                 mass: body_mass,
                 pos: Vec2::new(r * angle.cos(), r * angle.sin()),
-                radius: 0.005,
+                radius: 0.002,
                 // perpendicular to the radius
                 vel: Vec2::new(-angle.sin(), angle.cos()) * speed,
             });
@@ -224,6 +225,7 @@ impl World {
     fn set_circular_velocities(&mut self) {
         self.tree.build(&self.bodies);
         let center = self.bodies[0].pos;
+        let mut rng = StdRng::seed_from_u64(7);
         for i in 1..self.bodies.len() {
             let a = self.tree.acceleration(i, &self.bodies, THETA, SOFTENING2, &mut self.stack) * G;
             let d = self.bodies[i].pos - center;
@@ -232,7 +234,12 @@ impl World {
             let r_hat = d * (1.0 / r);
             let a_in = -(a.x * r_hat.x + a.y *r_hat.y);
             let speed = (r * a_in.max(0.0)).sqrt();
-            self.bodies[i].vel = Vec2::new(-r_hat.y, r_hat.x) * speed;
+
+            let u1: f32 = rng.random_range(f32::EPSILON..1.0);
+            let u2: f32 = rng.random_range(0.0..1.0);
+            let z = (-2.0 * u1.ln()).sqrt() * (std::f32::consts::TAU * u2).cos();
+            let factor = (1.0 + SPEED_SPREAD * z).max(0.0);
+            self.bodies[i].vel = Vec2::new(-r_hat.y, r_hat.x) * speed * factor;
                 
         }
         
