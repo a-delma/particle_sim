@@ -8,7 +8,7 @@ use model::world::{World, SpawnPattern};
 use std::time::Instant;
 const DT: f32 = 1.0 / 120.0;
 const START_BODIES: usize = 30000;
-const TIME_SCALE: f32 = 0.25;
+const TIME_SCALE: f32 = 1.0 / 3.0;
 const FULLSCREEN: bool = true;
 const WINDOW_TITLE: &str = "RUST_SIM";
 

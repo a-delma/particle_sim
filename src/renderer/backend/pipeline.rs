@@ -6,6 +6,7 @@ pub struct Builder<'a> {
     vertex_entry: String,
     fragment_entry: String,
     pixel_format: wgpu::TextureFormat,
+    blend: wgpu::BlendState,
     vertex_buffer_layouts: Vec<wgpu::VertexBufferLayout<'static>>,
     bind_group_layouts: Vec<&'a wgpu::BindGroupLayout>,
     device: &'a wgpu::Device,
@@ -19,6 +20,19 @@ impl<'a> Builder<'a> {
             vertex_entry: "dummy".to_string(),
             fragment_entry: "dummy".to_string(),
             pixel_format: wgpu::TextureFormat::Rgba8Unorm,
+            // additive: every fragment's light is added to what is already on screen
+            blend: wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::One,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add
+                },
+                alpha: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::One,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add
+                },
+            },
             vertex_buffer_layouts: Vec::new(),
             bind_group_layouts: Vec::new(),
             device: device,
@@ -50,6 +64,11 @@ impl<'a> Builder<'a> {
         self.pixel_format = pixel_format;
     }
 
+    pub fn set_blend(&mut self, blend: wgpu::BlendState) {
+
+        self.blend = blend;
+    }
+
     pub fn build(&mut self, label: &str) -> wgpu::RenderPipeline {
 
         let mut filepath = current_dir().unwrap();
@@ -73,19 +92,7 @@ impl<'a> Builder<'a> {
 
         let render_targets = [Some(wgpu::ColorTargetState {
             format: self.pixel_format,
-            blend: Some( wgpu::BlendState {
-                color: wgpu::BlendComponent {
-                    src_factor: wgpu::BlendFactor::One,
-                    dst_factor: wgpu::BlendFactor::One,
-                    operation: wgpu::BlendOperation::Add
-                }, 
-                alpha: wgpu::BlendComponent {
-                    src_factor: wgpu::BlendFactor::One,
-                    dst_factor: wgpu::BlendFactor::One,
-                    operation: wgpu::BlendOperation::Add
-                },
-
-            }),
+            blend: Some(self.blend),
             write_mask: wgpu::ColorWrites::ALL,
         })];
 

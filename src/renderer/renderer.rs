@@ -23,7 +23,8 @@ pub struct State<'a> {
     config: wgpu::SurfaceConfiguration,
     pub size: (i32, i32),
     pub window: &'a mut Window,
-    render_pipeline: wgpu::RenderPipeline,
+    glow_pipeline: wgpu::RenderPipeline,
+    core_pipeline: wgpu::RenderPipeline,
     quad_mesh: mesh_builder::Mesh,
     quad_material: Material,
     ibo: Option<IBO<ParticleInstance>>,
@@ -94,17 +95,28 @@ impl<'a> State<'a> {
             ubo_bind_group_layout = builder.build("Material Bind Group Layout");
         }
 
-        let render_pipeline: wgpu::RenderPipeline;
+        // Two pipelines over the same shader and instances: the glows are added up first,
+        // then the dark cores are blended over them so they block the light behind them.
+        let glow_pipeline: wgpu::RenderPipeline;
+        let core_pipeline: wgpu::RenderPipeline;
         {
             let mut builder = pipeline::Builder::new(&device);
-            builder.set_shader_module("shader.wgsl", "vs_main", "fs_main");
+            builder.set_shader_module("shader.wgsl", "vs_glow", "fs_glow");
             builder.set_pixel_format(config.format);
             builder.add_vertex_buffer_layout(Vertex::get_layout());
             builder.add_vertex_buffer_layout(ParticleInstance::get_layout());
             builder.add_bind_group_layout(&material_bind_group_layout);
             builder.add_bind_group_layout(&ubo_bind_group_layout);
-            // builder.add_bind_group_layout(&ubo_bind_group_layout);
-            render_pipeline = builder.build("Render Pipeline");
+            glow_pipeline = builder.build("Glow Pipeline");
+
+            builder.set_shader_module("shader.wgsl", "vs_core", "fs_core");
+            builder.add_vertex_buffer_layout(Vertex::get_layout());
+            builder.add_vertex_buffer_layout(ParticleInstance::get_layout());
+            builder.add_bind_group_layout(&material_bind_group_layout);
+            builder.add_bind_group_layout(&ubo_bind_group_layout);
+            // premultiplied alpha: the core covers what is behind it by its alpha
+            builder.set_blend(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING);
+            core_pipeline = builder.build("Core Pipeline");
         }
 
         let quad_material = Material::new(
@@ -125,7 +137,8 @@ impl<'a> State<'a> {
             queue,
             config,
             size,
-            render_pipeline,
+            glow_pipeline,
+            core_pipeline,
             quad_mesh,
             quad_material: quad_material,
             ibo: None,
@@ -246,8 +259,6 @@ impl<'a> State<'a> {
 
         {
             let mut renderpass = command_encoder.begin_render_pass(&render_pass_descriptor);
-            renderpass.set_pipeline(&self.render_pipeline);
-
             // Rendering the Quads
             renderpass.set_bind_group(0, &self.quad_material.bind_group, &[]);
             renderpass.set_bind_group(1, &self.projection_ubo.bind_group, &[]);
@@ -257,6 +268,10 @@ impl<'a> State<'a> {
                 self.quad_mesh.buffer.slice(self.quad_mesh.offset..),
                 wgpu::IndexFormat::Uint16,
             );
+
+            renderpass.set_pipeline(&self.glow_pipeline);
+            renderpass.draw_indexed(0..6, 0, 0..items.len() as u32);
+            renderpass.set_pipeline(&self.core_pipeline);
             renderpass.draw_indexed(0..6, 0, 0..items.len() as u32);
         }
         self.queue.submit(std::iter::once(command_encoder.finish()));

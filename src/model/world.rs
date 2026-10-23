@@ -16,9 +16,9 @@ const SOFTENING2: f32 = 1e-3;
 
 /// Collision Constants
 const RESTITUTION: f32 = 0.5;
-const MERGE_DEPTH: f32 = 0.75;
+const MERGE_DEPTH: f32 = 0.90;
 const SEPARATION_RATE: f32 = 0.3;
-const SEPARATION_SLOP: f32 = 0.5;
+const SEPARATION_SLOP: f32 = 0.05;
 
 /// Shatter Constants
 const FRAGMENTS: usize = 5;
@@ -133,10 +133,10 @@ impl World {
         const DISC_RADIUS: f32 = 1.0;
         // keeps the innermost orbits clear of the central body
         const INNER_RADIUS: f32 = 0.05;
-        const CENTRAL_MASS: f32 = 0.9;
+        const CENTRAL_MASS: f32 = 0.85;
         const CENTRAL_DENSITY: f32 = CENTRAL_MASS / (0.05 * 0.05 * 0.05);
         // total, shared between all disc bodies
-        const DISC_MASS: f32 = 0.09;
+        const DISC_MASS: f32 = 0.15;
         // surface density falls by a factor of e every SCALE_LENGTH
         const SCALE_LENGTH: f32 = 0.3;
 
@@ -247,13 +247,14 @@ impl World {
                 && i != 0;
             if bound {
                 if dist2 < MERGE_DEPTH * MERGE_DEPTH * contact * contact {
-                    // if i == 0 {
-                        self.bodies[i] = merge(a, b);
-                        self.alive[j] = false;
-                        changed = true;
-
-                    // }
-                } 
+                    self.bodies[i] = merge(a, b);
+                    self.alive[j] = false;
+                    changed = true;
+                } else {    
+                    let (a, b) = bounce(a, b, d, dist2.sqrt());
+                    self.bodies[i] = a;
+                    self.bodies[j] = b;
+                }
             } else if shatter {
                 shatter_into(a, b, q2.sqrt(), &mut self.spawned);
                 self.alive[i] = false;

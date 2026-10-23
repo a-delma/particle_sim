@@ -32,11 +32,11 @@ Single binary crate with two modules, wired together in `src/main.rs`:
 
 Frame loop (`main.rs`): `world.update(fixed dt)` → poll GLFW events → `state.render(world.get_items())`. Window move or resize recreates the surface (`update_surface` + `resize`).
 
-Rendering is a single instanced draw:
+Rendering is two instanced draws of the same instances in one pass: a glow pipeline (`vs_glow`/`fs_glow`, additive blending) then a core pipeline (`vs_core`/`fs_core`, premultiplied alpha, on a quad shrunk to the body) that draws dark discs over the glows. Both use:
 - Vertex buffer slot 0 is a unit quad (`mesh_builder::make_quad`), with vertices and indices in one buffer split at `mesh.offset`.
 - Slot 1 is the instance buffer (`IBO<ParticleInstance>`), rebuilt from the world every frame in `update_transformations`.
 - Bind group 0 is the texture material, bind group 1 is the view-projection matrix UBO.
-- The glow look comes entirely from the fragment shader in `shaders/shader.wgsl`, based on distance from the quad center.
+- The look comes entirely from `shaders/shader.wgsl`, based on distance from the quad center. The pipeline builder defaults to additive blending; `set_blend` overrides it.
 
 When adding per-particle data, keep three things in sync: `ParticleInstance` (`definitions.rs`, `#[repr(C)]` field order), its `vertex_attr_array!` locations, and the `Vertex` input struct in `shader.wgsl` (locations 2–4 are instance data).
 
