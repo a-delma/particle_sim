@@ -7,8 +7,11 @@ use rand::{RngExt, SeedableRng};
 
 /// Gravitational constant. The disc's masses are chosen for G = 1.
 pub const G: f32 = 1.0;
-/// Density of the mass-1.0 bodies in the Random, Circle and Grid patterns, giving them a radius of 0.002.
-const PATTERN_DENSITY: f32 = 1.0 / (0.002 * 0.002 * 0.002);
+/// Total mass of the Random, Circle and Grid patterns, shared equally between their bodies.
+/// Matches the disc pattern's total, which its velocities and the softening are tuned for.
+const PATTERN_MASS: f32 = 1.0;
+/// Radius of each body in the Random, Circle and Grid patterns.
+const PATTERN_RADIUS: f32 = 0.002;
 
 /// Approximation constants
 const THETA: f32 = 0.5;
@@ -56,7 +59,7 @@ impl World {
         let quads = match pattern {
             SpawnPattern::Random => Self::create_random_objects(count),
             SpawnPattern::Circle => Self::create_circle_objects(count, 0.5),
-            SpawnPattern::Grid => Self::create_grid_objects(count, 0.5),
+            SpawnPattern::Grid => Self::create_grid_objects(count, 0.9),
             SpawnPattern::Disc => Self::create_exponential_disc_objects(count),
         };
  
@@ -74,58 +77,83 @@ impl World {
         world
     }
 
+    /// Mass and density for one of `count` equal bodies sharing PATTERN_MASS.
+    fn pattern_body(count: usize) -> (f32, f32) {
+        let mass = PATTERN_MASS / count.max(1) as f32;
+        (mass, mass / PATTERN_RADIUS.powi(3))
+    }
+
+    /// Bodies scattered uniformly over the view, all drifting together. Body 0 sits at the
+    /// centre, so the view stays on the middle of the cloud.
     fn create_random_objects(count: usize) -> Vec<Body> {
         let mut rng = StdRng::seed_from_u64(42);
         let mut objects = Vec::with_capacity(count);
+        let (mass, density) = Self::pattern_body(count);
+        let drift = Vec2::new(0.50, -0.25);
 
-        for _ in 0..count {
+        objects.push(Body::new(Vec2::new(0.0, 0.0), drift, mass, density));
+        for _ in 1..count {
             objects.push(Body::new(
                 Vec2::new(
                     rng.random_range(-1.0..1.0),
                     rng.random_range(-1.0..1.0),
                 ),
-                Vec2::new(0.50, -0.25),
-                1.0,
-                PATTERN_DENSITY,
+                drift,
+                mass,
+                density,
             ));
         }
 
         objects
     }
 
+    /// A ring of bodies flying outwards from its centre. Body 0 sits still at the centre,
+    /// which is also the ring's centre of mass.
     fn create_circle_objects(count: usize, radius: f32) -> Vec<Body> {
         let mut objects = Vec::with_capacity(count);
+        let (mass, density) = Self::pattern_body(count);
 
-        for i in 0..count {
-            let angle = (i as f32 / count as f32) * std::f32::consts::TAU;
+        objects.push(Body::new(Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0), mass, density));
+        let ring = count.saturating_sub(1).max(1);
+        for i in 0..ring {
+            let angle = (i as f32 / ring as f32) * std::f32::consts::TAU;
 
             objects.push(Body::new(
                 Vec2::new(radius * angle.cos(), radius * angle.sin()),
                 Vec2::new(angle.cos(), angle.sin()),
-                1.0,
-                PATTERN_DENSITY,
+                mass,
+                density,
             ));
         }
 
         objects
     }
 
-    fn create_grid_objects(count: usize, spacing: f32) -> Vec<Body> {
-        let width = (count as f64).sqrt() as usize;
-        let height = (count as f64).sqrt() as usize;
+    /// A square grid at rest, centred on the origin and `half_size` from the centre to each
+    /// side. The side has an odd number of bodies so one lands exactly on the centre, and
+    /// that one is body 0.
+    fn create_grid_objects(count: usize, half_size: f32) -> Vec<Body> {
+        let mut side = (count as f64).sqrt() as usize;
+        if side % 2 == 0 {
+            side = side.saturating_sub(1);
+        }
+        let side = side.max(1);
+        let spacing = if side > 1 { 2.0 * half_size / (side - 1) as f32 } else { 0.0 };
+        let (mass, density) = Self::pattern_body(side * side);
 
-        let mut objects = Vec::with_capacity(width * height);
-
-        for y in 0..height {
-            for x in 0..width {
+        let mut objects = Vec::with_capacity(side * side);
+        for y in 0..side {
+            for x in 0..side {
                 objects.push(Body::new(
-                    Vec2::new(x as f32 * spacing, y as f32 * spacing),
+                    Vec2::new(x as f32 * spacing - half_size, y as f32 * spacing - half_size),
                     Vec2::new(0.0, 0.0),
-                    1.0,
-                    PATTERN_DENSITY,
+                    mass,
+                    density,
                 ));
             }
         }
+        let centre = (side / 2) * side + side / 2;
+        objects.swap(0, centre);
         objects
     }
 

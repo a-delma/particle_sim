@@ -16,11 +16,14 @@
 // The particle's physical (collision) radius in quad units. The quad is
 // radius * GLOW_SCALE wide (renderer.rs), so this is 2 / GLOW_SCALE; keep them in sync.
 const BODY_RADIUS: f32 = 0.10;
-// The core's colour. Its edge is anti-aliased over about one screen pixel (via fwidth),
-// so it stays crisp at any resolution or zoom.
+// The core's colour.
 const CORE_COLOR: vec3<f32> = vec3<f32>(0.01, 0.008, 0.015);
-// Half-width of the core pass's square, as a multiple of BODY_RADIUS. Just over 1 so the
-// anti-aliased edge is not clipped.
+// The core is drawn on a coarse grid with hard edges, for a pixel-art look. The grid is
+// centred on the particle and measured in body radii (so it moves and scales with it);
+// this is the size of one cell, making the core 2 / PIXEL_SIZE cells across.
+const PIXEL_SIZE: f32 = 0.0625;
+// Half-width of the core pass's square, as a multiple of BODY_RADIUS. Covers the disc
+// plus the cells that poke out past its edge.
 const CORE_QUAD_SCALE: f32 = 1.25;
 // Brightness of the glow at the body's edge.
 const HALO_STRENGTH: f32 = 0.5;
@@ -102,12 +105,12 @@ fn fs_glow(in: VertexPayload) -> @location(0) vec4f {
 
 @fragment
 fn fs_core(in: VertexPayload) -> @location(0) vec4f {
-    let d = length(in.uv);
+    // Position in body radii, snapped to the centre of its grid cell so every fragment
+    // in a cell gets the same result.
+    let p = (floor(in.uv / BODY_RADIUS / PIXEL_SIZE) + 0.5) * PIXEL_SIZE;
 
-    // Solid disc with a one-pixel anti-aliased edge. fwidth gives how much d changes
-    // across one pixel, so the edge width is fixed in pixels.
-    let aa = fwidth(d);
-    let coverage = 1.0 - smoothstep(BODY_RADIUS - aa, BODY_RADIUS + aa, d);
+    // Solid disc with hard edges: a cell is either fully in or fully out.
+    let coverage = select(0.0, 1.0, length(p) <= 1.0);
 
     // Premultiplied alpha: the core replaces what is behind it by its coverage.
     return vec4f(CORE_COLOR * coverage, coverage);
