@@ -5,6 +5,7 @@ const LEAF: u32 = 0;
 #[derive(Clone, Copy, Debug)]
 pub struct Body {
     pub pos: Vec2,
+    pub prev_pos: Vec2,
     pub vel: Vec2,
     pub mass: f32,
     pub radius: f32,
@@ -13,7 +14,7 @@ pub struct Body {
 
 impl Body {
     pub fn new(pos: Vec2, vel: Vec2, mass: f32, density: f32) -> Self {
-        Body { pos, vel, mass, density, radius: (mass / density).cbrt() }
+        Body { pos, prev_pos: pos, vel, mass, density, radius: (mass / density).cbrt() }
     }
 }
 
@@ -307,6 +308,7 @@ mod tests {
     fn body(x: f32, y: f32) -> Body {
         Body {
             pos: Vec2::new(x, y),
+            prev_pos: Vec2::new(x, y),
             vel: Vec2::new(0.0, 0.0),
             mass: 1.0,
             radius: 0.01,
@@ -434,6 +436,7 @@ mod tests {
     fn body_with(x: f32, y: f32, mass: f32, radius: f32) -> Body {
         Body {
             pos: Vec2::new(x, y),
+            prev_pos: Vec2::new(x, y),
             vel: Vec2::new(0.0, 0.0),
             mass,
             radius,

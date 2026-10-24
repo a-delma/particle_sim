@@ -7,10 +7,10 @@ use model::world::{World, SpawnPattern};
 
 use std::time::Instant;
 const DT: f32 = 1.0 / 960.0;
-const START_BODIES: usize = 30000;
+const START_BODIES: usize = 15000;
 /// Asteroid belt size for SpawnPattern::Solar.
 const SOLAR_ASTEROIDS: usize = 2000;
-const TIME_SCALE: f32 = 1.0 / 24.0;
+const TIME_SCALE: f32 = 1.0 / 1024.0;
 const FULLSCREEN: bool = false;
 /// Default window title. The first command-line argument overrides it, so several instances
 /// can be told apart (hyprwinwrap matches windows by exact title).
@@ -76,8 +76,8 @@ async fn run() {
     state.window.set_mouse_button_polling(true);
     state.window.set_pos_polling(true);
 
-    // for the disc: World::new(START_BODIES, SpawnPattern::Disc)
-    let mut world = World::new(SOLAR_ASTEROIDS, SpawnPattern::Solar);
+    // let mut world = World::new(SOLAR_ASTEROIDS, SpawnPattern::Solar);
+    let mut world = World::new(START_BODIES, SpawnPattern::Disc);
     state.build_ibo_for_object(world.bodies().len());
     state.build_ubos_for_objects(1);
 
@@ -97,6 +97,7 @@ async fn run() {
             sim_steps += 1;
             accumulator -= DT;
         }
+        let alpha = accumulator / DT;
         if sim_steps >= 120 {
             eprintln!("{} bodies, {:.2} ms/update", world.bodies().len(), 1000.0 * sim_time / sim_steps as f32);
             (sim_time, sim_steps) = (0.0, 0);
@@ -166,7 +167,7 @@ async fn run() {
             }
         }
 
-        match state.render(world.bodies()) {
+        match state.render(world.bodies(), alpha) {
             Ok(_) => {}
             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                 state.update_surface();
