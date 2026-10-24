@@ -10,8 +10,8 @@ const DT: f32 = 1.0 / 960.0;
 const START_BODIES: usize = 5000;
 /// Asteroid belt size for SpawnPattern::Solar.
 const SOLAR_ASTEROIDS: usize = 2000;
-const TIME_SCALE: f32 = 1.0 / 1024.0;
-// const TIME_SCALE: f32 = 1.0 / 4.0;
+// const TIME_SCALE: f32 = 1.0 / 1024.0;
+const TIME_SCALE: f32 = 1.0 / 4.0;
 const FULLSCREEN: bool = false;
 /// Default window title. The first command-line argument overrides it, so several instances
 /// can be told apart (hyprwinwrap matches windows by exact title).

@@ -2,7 +2,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::{World, G, THETA};
+use super::{World, G, SOFTENING2, THETA};
 use crate::model::quad_tree::Body;
 
 use glm::Vec2;
@@ -254,7 +254,7 @@ impl World {
         let r_bulge = rng.random_range(0.15..0.3) * size;
         eprintln!(
             "galaxy: {n_arms} arms, pitch {pitch:.1}°, phase {a_phase:.2} rad, \
-             width {a_width:.2} rad, between-arm {:.0}%, spin {}, buldge {r_bulge:.2}",
+             width {a_width:.2} rad, between-arm {:.0}%, spin {}, bulge {r_bulge:.2}",
             frac * 100.0,
             if spin > 0.0 { "counterclockwise" } else { "clockwise" },
         );
@@ -298,7 +298,11 @@ impl World {
             // mass inside this orbit: the central body plus the part of the disc within r
             let disc_fraction = (cumulative(r) - f_inner) / (f_outer - f_inner);
             let enclosed = central_mass + disc_mass * disc_fraction;
-            let speed = (G * enclosed / r).sqrt();
+            // circular speed under the softened pull G·M·r / (r² + ε²)^1.5 that `pull` applies,
+            // rather than plain G·M / r², which is up to 40% stronger at the inner edge and would
+            // send the innermost bodies out on wide ellipses
+            let r2 = r * r;
+            let speed = (G * enclosed * r2 / (r2 + SOFTENING2).powf(1.5)).sqrt();
 
             objects.push(Body::new(
                     Vec2::new(r * angle.cos(), r * angle.sin()) + center,
@@ -340,7 +344,7 @@ impl World {
         // let mut bodies = Self::create_exponential_disc_objects(count, c1);
 
         let q: f32 = rng.random_range(2.5..3.5);
-        let e: f32 = rng.random_range(0.8..0.95);
+        let e: f32 = rng.random_range(0.5..0.8);
         // far enough that the companion's whole disc (radius √MASS_RATIO) starts outside the
         // ±1.78 × ±1 view
         let r_zero: f32 = 4.5;

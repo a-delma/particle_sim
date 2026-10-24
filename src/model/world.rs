@@ -30,7 +30,7 @@ const SHATTER_RATIO: f32 = 1.0;
 const MIN_SHATTER_MASS: f32 = 1e-4;
 
 /// Other Consts
-const CULL_RADIUS: f32 = 50.0;
+const CULL_RADIUS: f32 = 150.0;
 
 
 pub struct World {
@@ -301,8 +301,10 @@ mod tests {
         let x = 0.02 * (MERGE_DEPTH + 1.0) / 2.0;
         let w = collide(vec![body(0.0, 0.0, 1.0, 0.01), body(x, 0.0, 1.0, 0.01)]);
         assert_eq!(w.bodies.len(), 2);
-        assert_eq!(w.bodies[0].pos.x, 0.0);
-        assert_eq!(w.bodies[1].pos.x, x);
+        // With MERGE_DEPTH = 0.9 this overlap lands exactly on the separation slop, so rounding
+        // can leave a correction of ~1e-11 instead of exactly zero.
+        assert!(close(w.bodies[0].pos.x, 0.0), "pos {}", w.bodies[0].pos.x);
+        assert!(close(w.bodies[1].pos.x, x), "pos {}", w.bodies[1].pos.x);
     }
 
     /// Gap after one `bounce` between two r = 0.01 bodies that start 0.005 apart.
