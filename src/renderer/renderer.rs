@@ -217,7 +217,7 @@ impl<'a> State<'a> {
             particles.push(ParticleInstance {
                 position: [new_pos.x, new_pos.y],
                 size: quads[i].radius * GLOW_SCALE * VIEW_SCALE * 0.5,
-                color: [1.0, 0.9, 0.8],
+                color: quads[i].color,
             });
         }
 

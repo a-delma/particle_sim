@@ -29,10 +29,6 @@ const CORE_QUAD_SCALE: f32 = 1.25;
 const HALO_STRENGTH: f32 = 0.5;
 // How fast the glow fades with distance from the edge. Larger = a tighter glow.
 const HALO_FALLOFF: f32 = 120.0;
-// The glow shifts from a light violet at the body's edge to deep purple further out.
-// Both are multiplied by the particle's own colour.
-const HALO_INNER_TINT: vec3<f32> = vec3<f32>(0.52, 0.33, 0.75);
-const HALO_EDGE_TINT: vec3<f32> = vec3<f32>(0.22, 0.03, 0.49);
 // Distance at which the glow has fully reached HALO_EDGE_TINT.
 const EDGE_TINT_DISTANCE: f32 = 0.5;
 
@@ -98,9 +94,9 @@ fn fs_glow(in: VertexPayload) -> @location(0) vec4f {
 
     // Violet at the body's edge, deep purple out in the glow.
     let t = smoothstep(BODY_RADIUS, EDGE_TINT_DISTANCE, d);
-    let halo_color = mix(HALO_INNER_TINT, HALO_EDGE_TINT, t);
+    let halo_color = mix(in.color, in.color * in.color, t);
 
-    return vec4f(in.color * halo_color * halo, 1.0);
+    return vec4f(halo_color * halo, 1.0);
 }
 
 @fragment

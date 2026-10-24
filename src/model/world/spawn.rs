@@ -16,19 +16,42 @@ const PATTERN_MASS: f32 = 1.0;
 const PATTERN_RADIUS: f32 = 0.002;
 
 /// Solar Constants
-const PLANETS: [(f32, f32, f32, f32); 8] = [
-    (0.11, 0.21, 1.7e-7, 0.004), // Mercury
-    (0.15, 0.01, 2.4e-6, 0.006), // Venus
-    (0.17, 0.02, 3.0e-6, 0.006), // Earth
-    (0.21, 0.09, 3.2e-7, 0.005), // Mars
-    (0.40, 0.05, 9.5e-4, 0.016), // Jupiter
-    (0.54, 0.06, 2.9e-4, 0.014), // Saturn
-    (0.76, 0.05, 4.4e-5, 0.010), // Uranus
-    (0.95, 0.01, 5.2e-5, 0.010), // Neptune
+/// a, e, mass (sun = 1), drawn radius, glow colour. Colours keep their brightest channel
+/// around 0.6–0.85, like DEFAULT_COLOR, since the glow is additive.
+const PLANETS: [(f32, f32, f32, f32, [f32; 3]); 8] = [
+    (0.11, 0.21, 1.7e-7, 0.004, [0.55, 0.52, 0.50]), // Mercury: grey
+    (0.15, 0.01, 2.4e-6, 0.006, [0.75, 0.65, 0.40]), // Venus: pale yellow
+    (0.17, 0.02, 3.0e-6, 0.006, [0.30, 0.50, 0.80]), // Earth: blue
+    (0.21, 0.09, 3.2e-7, 0.005, [0.80, 0.35, 0.20]), // Mars: rust red
+    (0.40, 0.05, 9.5e-4, 0.016, [0.80, 0.60, 0.40]), // Jupiter: tan
+    (0.54, 0.06, 2.9e-4, 0.014, [0.80, 0.70, 0.45]), // Saturn: pale gold
+    (0.76, 0.05, 4.4e-5, 0.010, [0.45, 0.75, 0.80]), // Uranus: cyan
+    (0.95, 0.01, 5.2e-5, 0.010, [0.30, 0.40, 0.85]), // Neptune: deep blue
 ];
+const SUN_COLOR: [f32; 3] = [0.85, 0.70, 0.40];
+const ASTEROID_COLOR: [f32; 3] = [0.45, 0.40, 0.35];
+const COMET_COLOR: [f32; 3] = [0.60, 0.80, 0.85];
 
 /// Spread of the disc's orbital speeds, as a fraction of the circular speed.
 const SPEED_SPREAD: f32 = 0.0;
+
+/// Color Constants
+const DEFAULT_COLOR: [f32; 3] = [0.52, 0.30, 0.60];
+// Brightest channel kept around 0.6–0.8 since the glow is additive. Green and yellow sit a
+// little lower because they look brighter than red or blue at the same values.
+const VIOLET: [f32; 3] = [0.52, 0.30, 0.60];
+const RED: [f32; 3] = [0.75, 0.25, 0.22];
+const BLUE: [f32; 3] = [0.25, 0.45, 0.80];
+const GREEN: [f32; 3] = [0.28, 0.62, 0.36];
+const YELLOW: [f32; 3] = [0.75, 0.62, 0.28];
+
+const COLORS: [[f32; 3]; 5] = [
+    VIOLET,
+    RED,
+    BLUE,
+    GREEN,
+    YELLOW
+];
 
 pub enum SpawnPattern {
     Random,
@@ -49,7 +72,7 @@ impl World {
             SpawnPattern::Random => Self::create_random_objects(count),
             SpawnPattern::Circle => Self::create_circle_objects(count, 0.5),
             SpawnPattern::Grid => Self::create_grid_objects(count, 0.9),
-            SpawnPattern::Disc => Self::create_exponential_disc_objects(count),
+            SpawnPattern::Disc => Self::create_exponential_disc_objects(count, DEFAULT_COLOR),
             SpawnPattern::Galaxy => Self::create_galaxy_objects(count),
             SpawnPattern::Encounter => Self::create_galaxy_encounter_objects(count),
             SpawnPattern::Solar => Self::create_solar_objects(count),
@@ -70,7 +93,7 @@ impl World {
         let (mass, density) = Self::pattern_body(count);
         let drift = Vec2::new(0.50, -0.25);
 
-        objects.push(Body::new(Vec2::new(0.0, 0.0), drift, mass, density));
+        objects.push(Body::new(Vec2::new(0.0, 0.0), drift, mass, density, DEFAULT_COLOR));
         for _ in 1..count {
             objects.push(Body::new(
                 Vec2::new(
@@ -80,6 +103,7 @@ impl World {
                 drift,
                 mass,
                 density,
+                DEFAULT_COLOR,
             ));
         }
 
@@ -92,7 +116,7 @@ impl World {
         let mut objects = Vec::with_capacity(count);
         let (mass, density) = Self::pattern_body(count);
 
-        objects.push(Body::new(Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0), mass, density));
+        objects.push(Body::new(Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0), mass, density, DEFAULT_COLOR));
         let ring = count.saturating_sub(1).max(1);
         for i in 0..ring {
             let angle = (i as f32 / ring as f32) * std::f32::consts::TAU;
@@ -102,6 +126,7 @@ impl World {
                 Vec2::new(angle.cos(), angle.sin()),
                 mass,
                 density,
+                DEFAULT_COLOR
             ));
         }
 
@@ -128,6 +153,7 @@ impl World {
                     Vec2::new(0.0, 0.0),
                     mass,
                     density,
+                    DEFAULT_COLOR,
                 ));
             }
         }
@@ -136,7 +162,7 @@ impl World {
         objects
     }
 
-    fn create_exponential_disc_objects(count: usize) -> Vec<Body> {
+    fn create_exponential_disc_objects(count: usize, color: [f32; 3]) -> Vec<Body> {
         const DISC_RADIUS: f32 = 1.0;
         // keeps the innermost orbits clear of the central body
         const INNER_RADIUS: f32 = 0.05;
@@ -157,7 +183,7 @@ impl World {
         let mut rng = StdRng::seed_from_u64(42);
         let mut objects = Vec::with_capacity(count + 1);
 
-        objects.push(Body::new(Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0), CENTRAL_MASS, CENTRAL_DENSITY));
+        objects.push(Body::new(Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0), CENTRAL_MASS, CENTRAL_DENSITY, color));
 
         let body_mass = DISC_MASS / count.max(1) as f32;
         let body_density = body_mass / (0.002_f32).powi(3);
@@ -181,7 +207,8 @@ impl World {
                     Vec2::new(r * angle.cos(), r * angle.sin()),
                     Vec2::new(-angle.sin(), angle.cos()) * speed,
                     body_mass, 
-                    body_density));
+                    body_density,
+                    color));
         }
 
         objects
@@ -192,7 +219,8 @@ impl World {
         rng: &mut StdRng, 
         center: Vec2, 
         bulk_vel: Vec2, 
-        t_mass: f32) -> Vec<Body> {
+        t_mass: f32,
+        color: [f32; 3]) -> Vec<Body> {
 
         // lighter galaxies are smaller: lengths scale with √mass, so 1.0 is the full-size galaxy
         let size = t_mass.sqrt();
@@ -238,7 +266,8 @@ impl World {
                 Vec2::new(0.0, 0.0) + center, 
                 Vec2::new(0.0, 0.0) + bulk_vel, 
                 central_mass, 
-                central_density));
+                central_density,
+                color));
 
         let body_mass = disc_mass / count.max(1) as f32;
         let body_density = body_mass / (0.002_f32).powi(3);
@@ -275,7 +304,8 @@ impl World {
                     Vec2::new(r * angle.cos(), r * angle.sin()) + center,
                     Vec2::new(-angle.sin(), angle.cos()) * speed * spin + bulk_vel,
                     body_mass, 
-                    body_density));
+                    body_density,
+                    color));
         }
 
         objects
@@ -288,7 +318,7 @@ impl World {
             .expect("Time went backwards")
             .as_secs();
         let mut rng = StdRng::seed_from_u64(t);
-        Self::create_galaxy_inner(count, &mut rng, Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0), 1.0)
+        Self::create_galaxy_inner(count, &mut rng, Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0), 1.0, DEFAULT_COLOR)
     }
 
     fn create_galaxy_encounter_objects(count: usize) -> Vec<Body> {
@@ -300,7 +330,14 @@ impl World {
             .as_secs();
         let mut rng = StdRng::seed_from_u64(t);
         eprintln!("encounter: seed {t}, main galaxy then companion:");
-        let mut bodies = Self::create_galaxy_inner(count, &mut rng, Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0), MAIN_MASS);
+        let c1 = rng.random_range(0..COLORS.len());
+        let c2 = c1 + rng.random_range(1..COLORS.len());
+        let c1 = COLORS[c1];
+        let c2 = COLORS[c2 % COLORS.len()];
+
+
+        let mut bodies = Self::create_galaxy_inner(count, &mut rng, Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0), MAIN_MASS, c1);
+        // let mut bodies = Self::create_exponential_disc_objects(count, c1);
 
         let q: f32 = rng.random_range(2.5..3.5);
         let e: f32 = rng.random_range(0.8..0.95);
@@ -326,7 +363,7 @@ impl World {
             center.x, center.y, bulk_vel.x, bulk_vel.y,
         );
         let s_count = (count as f32 * MASS_RATIO) as usize;
-        bodies.append(&mut Self::create_galaxy_inner(s_count, &mut rng, center, bulk_vel, MASS_RATIO));
+        bodies.append(&mut Self::create_galaxy_inner(s_count, &mut rng, center, bulk_vel, MASS_RATIO, c2));
         bodies
     }
 
@@ -361,12 +398,12 @@ impl World {
 
         let mut rng = StdRng::seed_from_u64(42);
         let mut objects = vec![Body::new(
-            Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0), SUN_MASS, SUN_MASS / SUN_RADIUS.powi(3),
+            Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0), SUN_MASS, SUN_MASS / SUN_RADIUS.powi(3), SUN_COLOR,
         )];
 
-        for &(a, e, mass, radius) in &PLANETS {
+        for &(a, e, mass, radius, color) in &PLANETS {
             let (pos, vel) = Self::kepler_state(SUN_MASS, a, e, rng.random_range(0.0..TAU), rng.random_range(0.0..TAU));
-            objects.push(Body::new(pos, vel, mass, mass / radius.powi(3)));
+            objects.push(Body::new(pos, vel, mass, mass / radius.powi(3), color));
         }
 
         // asteroid belt between Mars and Jupiter: massless in practice, slightly eccentric
@@ -375,12 +412,12 @@ impl World {
             let a = rng.random_range(0.26..0.34);
             let e = rng.random_range(0.0..0.12);
             let (pos, vel) = Self::kepler_state(SUN_MASS, a, e, rng.random_range(0.0..TAU), rng.random_range(0.0..TAU));
-            objects.push(Body::new(pos, vel, rock, rock / 0.001_f32.powi(3)));
+            objects.push(Body::new(pos, vel, rock, rock / 0.001_f32.powi(3), ASTEROID_COLOR));
         }
 
         // a comet starting at aphelion (nu = π), diving in to 0.18 at perihelion
         let (pos, vel) = Self::kepler_state(SUN_MASS, 0.6, 0.7, std::f32::consts::PI, 1.0);
-        objects.push(Body::new(pos, vel, 1e-9, 1e-9 / 0.004_f32.powi(3)));
+        objects.push(Body::new(pos, vel, 1e-9, 1e-9 / 0.004_f32.powi(3), COMET_COLOR));
 
         objects
     }

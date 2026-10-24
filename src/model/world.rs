@@ -72,11 +72,11 @@ impl World {
         world
     }
 
-    pub fn add_body(&mut self, start: Vec2, target: Vec2, speed: f32, mass: f32, density: f32) {
+    pub fn add_body(&mut self, start: Vec2, target: Vec2, speed: f32, mass: f32, density: f32, color: [f32; 3]) {
        let d = target - start;
        let len = (d.x * d.x + d.y * d.y).sqrt();
        let dir = if len > 1e-6 { d * (1.0 / len) } else { Vec2::new(0.0, 0.0) };
-       self.bodies.push(Body::new(start, dir * speed, mass, density));
+       self.bodies.push(Body::new(start, dir * speed, mass, density, color));
        // keeps `acc` lined up with `bodies`; the new body skips its first half kick
        self.acc.push(Vec2::new(0.0, 0.0));
     }
@@ -210,7 +210,7 @@ fn shatter_into(a: Body, b: Body, impact_q: f32, out: &mut Vec<Body>) {
     for k in 0..n {
         let angle = base + std::f32::consts::TAU * k as f32 / n as f32;
         let dir = Vec2::new(angle.cos(), angle.sin());
-        out.push(Body::new(whole.pos + dir * (2.0 * radius), whole.vel + dir * speed, mass, whole.density));
+        out.push(Body::new(whole.pos + dir * (2.0 * radius), whole.vel + dir * speed, mass, whole.density, a.merge_color(b)));
     }
 }
 
@@ -218,7 +218,7 @@ fn merge(a: Body, b: Body) -> Body {
     let mass = a.mass + b.mass;
     let (wa, wb) = (a.mass / mass, b.mass / mass);
     let volume = a.mass / a.density + b.mass / b.density;
-    let mut body = Body::new(a.pos * wa + b.pos * wb, a.vel * wa + b.vel * wb, mass, mass / volume);
+    let mut body = Body::new(a.pos * wa + b.pos * wb, a.vel * wa + b.vel * wb, mass, mass / volume, a.merge_color(b));
     body.prev_pos = a.prev_pos * wa + b.prev_pos * wb;
     body
 }
@@ -251,7 +251,7 @@ mod tests {
     use super::*;
 
     fn body(x: f32, vx: f32, mass: f32, radius: f32) -> Body {
-        Body::new(Vec2::new(x, 0.0), Vec2::new(vx, 0.0), mass, mass / radius.powi(3))
+        Body::new(Vec2::new(x, 0.0), Vec2::new(vx, 0.0), mass, mass / radius.powi(3), [1.0, 1.0, 1.0])
     }
 
     fn close(a: f32, b: f32) -> bool {
@@ -397,7 +397,7 @@ mod tests {
         let (a, e) = (0.11, 0.21);
         let (pos, vel) = World::kepler_state(1.0, a, e, 0.0, 0.0);
         let mut w = World {
-            bodies: vec![body(0.0, 0.0, 1.0, 0.03), Body::new(pos, vel, 1e-12, 1e-12 / 0.004_f32.powi(3))],
+            bodies: vec![body(0.0, 0.0, 1.0, 0.03), Body::new(pos, vel, 1e-12, 1e-12 / 0.004_f32.powi(3), [1.0, 1.0, 1.0])],
             tree: QuadTree::new(8, 16),
             stack: Vec::new(),
             acc: Vec::new(),

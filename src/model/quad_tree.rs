@@ -10,11 +10,21 @@ pub struct Body {
     pub mass: f32,
     pub radius: f32,
     pub density: f32,
+    pub color: [f32; 3],
 }
 
 impl Body {
-    pub fn new(pos: Vec2, vel: Vec2, mass: f32, density: f32) -> Self {
-        Body { pos, prev_pos: pos, vel, mass, density, radius: (mass / density).cbrt() }
+    pub fn new(pos: Vec2, vel: Vec2, mass: f32, density: f32, color: [f32; 3]) -> Self {
+        Body { pos, prev_pos: pos, vel, mass, density, radius: (mass / density).cbrt(), color }
+    }
+
+    pub fn merge_color(self, b: Body) -> [f32; 3] {
+        let r: f32 = self.mass / (self.mass + b.mass);
+        let mut c = [0.0; 3];
+        for (i, (a, b)) in self.color.iter().zip(b.color.iter()).enumerate() {
+            c[i] = a * r + b * (1.0 - r);
+        }
+        c
     }
 }
 
@@ -313,6 +323,7 @@ mod tests {
             mass: 1.0,
             radius: 0.01,
             density: 1.0 / (0.01 * 0.01 * 0.01),
+            color: [1.0, 1.0, 1.0],
         }
     }
 
@@ -441,6 +452,7 @@ mod tests {
             mass,
             radius,
             density: mass / radius.powi(3),
+            color: [1.0, 1.0, 1.0],
         }
     }
 
