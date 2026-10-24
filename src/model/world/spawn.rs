@@ -1,5 +1,7 @@
 //! Initial layouts for `World`: one constructor per `SpawnPattern`.
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use super::{World, G, THETA};
 use crate::model::quad_tree::Body;
 
@@ -34,6 +36,7 @@ pub enum SpawnPattern {
     Circle,
     /// A heavy central body with the rest orbiting it in a disc.
     Disc,
+    Galaxy,
     Solar,
 }
 
@@ -46,6 +49,7 @@ impl World {
             SpawnPattern::Circle => Self::create_circle_objects(count, 0.5),
             SpawnPattern::Grid => Self::create_grid_objects(count, 0.9),
             SpawnPattern::Disc => Self::create_exponential_disc_objects(count),
+            SpawnPattern::Galaxy => Self::create_galaxy_objects(count),
             SpawnPattern::Solar => Self::create_solar_objects(count),
         }
     }
@@ -174,6 +178,91 @@ impl World {
             objects.push(Body::new(
                     Vec2::new(r * angle.cos(), r * angle.sin()),
                     Vec2::new(-angle.sin(), angle.cos()) * speed,
+                    body_mass, 
+                    body_density));
+        }
+
+        objects
+    }
+
+
+    fn create_galaxy_objects(count: usize) -> Vec<Body> {
+        const DISC_RADIUS: f32 = 1.0;
+        // keeps the innermost orbits clear of the central body
+        const INNER_RADIUS: f32 = 0.05;
+        const CENTRAL_MASS: f32 = 0.85;
+        const CENTRAL_DENSITY: f32 = CENTRAL_MASS / (0.05 * 0.05 * 0.05);
+        // total, shared between all disc bodies
+        const DISC_MASS: f32 = 0.15;
+        // surface density falls by a factor of e every SCALE_LENGTH
+        const SCALE_LENGTH: f32 = 0.3;
+
+        // fraction of an untruncated exponential disc's mass inside r
+        let cumulative = |r: f32| {
+            let x = r / SCALE_LENGTH;
+            1.0 - (1.0 + x) * (-x).exp()
+        };
+        let (f_inner, f_outer) = (cumulative(INNER_RADIUS), cumulative(DISC_RADIUS));
+
+        // Setting up initial conditions
+        let t = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs();
+        let mut rng = StdRng::seed_from_u64(t);
+        let n_arms: usize = rng.random_range(2..5);
+        let pitch: f32 = rng.random_range(12.0..28.0);
+        let a_phase: f32 = rng.random_range(0.0..std::f32::consts::TAU);
+        let a_width: f32 = rng.random_range(0.15..0.35);
+        let frac: f32 = rng.random_range(0.15..0.35);
+        let spin: f32 = if rng.random_bool(0.5) { 1.0 } else { -1.0 };
+        let r_bulge = rng.random_range(0.15..0.3);
+        eprintln!(
+            "galaxy: seed {t}, {n_arms} arms, pitch {pitch:.1}°, phase {a_phase:.2} rad, \
+             width {a_width:.2} rad, between-arm {:.0}%, spin {}, buldge {r_bulge:.2}",
+            frac * 100.0,
+            if spin > 0.0 { "counterclockwise" } else { "clockwise" },
+        );
+
+        
+        let mut objects = Vec::with_capacity(count + 1);
+
+        objects.push(Body::new(Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0), CENTRAL_MASS, CENTRAL_DENSITY));
+
+        let body_mass = DISC_MASS / count.max(1) as f32;
+        let body_density = body_mass / (0.002_f32).powi(3);
+        for _ in 0..count {
+            
+            // Gamma(2, h) is the sum of two exponentials; redraw until i
+            let r = loop {
+                let u: f32 = rng.random_range(f32::EPSILON..1.0) * rng.random_range(f32::EPSILON..1.0);
+                let r = -SCALE_LENGTH * u.ln();
+                if (INNER_RADIUS..DISC_RADIUS).contains(&r) {
+                    break r;
+                }
+            };
+            let angle: f32 = {
+                let t = ((r - INNER_RADIUS) / (r_bulge - INNER_RADIUS)).clamp(0.0, 1.0);
+                let t = t*t*(3.0 - 2.0*t);
+                if rng.random_range(0.0..1.0) <= (1.0 - (1.0 - frac) * t) {
+                    rng.random_range(0.0..std::f32::consts::TAU)
+                } else {
+                    let wind: f32 = 1.0 / pitch.to_radians().tan();
+                    let n: usize = rng.random_range(0..n_arms);
+                    let u1: f32 = rng.random_range(f32::EPSILON..1.0);
+                    let u2: f32 = rng.random_range(0.0..1.0);
+                    let z = (-2.0 * u1.ln()).sqrt() * (std::f32::consts::TAU * u2).cos();
+                    a_phase + std::f32::consts::TAU * (n as f32) / (n_arms as f32) - spin * wind * (r / INNER_RADIUS).ln() + a_width * z
+                }
+            };
+            // mass inside this orbit: the central body plus the part of the disc within r
+            let disc_fraction = (cumulative(r) - f_inner) / (f_outer - f_inner);
+            let enclosed = CENTRAL_MASS + DISC_MASS * disc_fraction;
+            let speed = (G * enclosed / r).sqrt();
+
+            objects.push(Body::new(
+                    Vec2::new(r * angle.cos(), r * angle.sin()),
+                    Vec2::new(-angle.sin(), angle.cos()) * speed * spin,
                     body_mass, 
                     body_density));
         }
