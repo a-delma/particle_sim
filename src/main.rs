@@ -6,19 +6,23 @@ mod model;
 use model::world::{World, SpawnPattern};
 
 use std::time::Instant;
-const DT: f32 = 1.0 / 120.0;
+const DT: f32 = 1.0 / 960.0;
 const START_BODIES: usize = 30000;
-const TIME_SCALE: f32 = 1.0 / 3.0;
-const FULLSCREEN: bool = true;
+/// Asteroid belt size for SpawnPattern::Solar.
+const SOLAR_ASTEROIDS: usize = 2000;
+const TIME_SCALE: f32 = 1.0 / 24.0;
+const FULLSCREEN: bool = false;
+/// Default window title. The first command-line argument overrides it, so several instances
+/// can be told apart (hyprwinwrap matches windows by exact title).
 const WINDOW_TITLE: &str = "RUST_SIM";
 
 type Events = GlfwReceiver<(f64, WindowEvent)>;
 
-fn get_centered_window(glfw: &mut Glfw) -> (PWindow, Events) {
+fn get_centered_window(glfw: &mut Glfw, title: &str) -> (PWindow, Events) {
     // Stay hidden until positioned, so the window doesn't flash at its default spot.
     glfw.window_hint(WindowHint::Visible(false));
     let (mut window, events) = glfw
-        .create_window(800, 600, WINDOW_TITLE, glfw::WindowMode::Windowed)
+        .create_window(800, 600, title, glfw::WindowMode::Windowed)
         .unwrap();
 
     let (win_w, win_h) = window.get_size();
@@ -41,14 +45,14 @@ fn get_centered_window(glfw: &mut Glfw) -> (PWindow, Events) {
 
 // Fullscreen on the primary monitor at its current video mode, so the display
 // resolution doesn't change.
-fn get_fs_window(glfw: &mut Glfw) -> (PWindow, Events) {
+fn get_fs_window(glfw: &mut Glfw, title: &str) -> (PWindow, Events) {
     glfw.with_primary_monitor(|glfw, monitor| {
         let monitor = monitor.expect("no primary monitor");
         let mode = monitor.get_video_mode().expect("no video mode");
         glfw.create_window(
             mode.width,
             mode.height,
-            WINDOW_TITLE,
+            title,
             glfw::WindowMode::FullScreen(monitor),
         )
     })
@@ -58,10 +62,11 @@ fn get_fs_window(glfw: &mut Glfw) -> (PWindow, Events) {
 async fn run() {
     let mut glfw = glfw::init(fail_on_errors!()).unwrap();
     glfw.window_hint(WindowHint::ClientApi(ClientApiHint::NoApi));
+    let title = std::env::args().nth(1).unwrap_or_else(|| WINDOW_TITLE.to_string());
     let (mut window, events) = if FULLSCREEN {
-        get_fs_window(&mut glfw)
+        get_fs_window(&mut glfw, &title)
     } else {
-        get_centered_window(&mut glfw)
+        get_centered_window(&mut glfw, &title)
     };
 
     let mut state = State::new(&mut window).await;
@@ -71,8 +76,8 @@ async fn run() {
     state.window.set_mouse_button_polling(true);
     state.window.set_pos_polling(true);
 
-    let object_count: usize = START_BODIES;
-    let mut world = World::new(object_count, SpawnPattern::Disc);
+    // for the disc: World::new(START_BODIES, SpawnPattern::Disc)
+    let mut world = World::new(SOLAR_ASTEROIDS, SpawnPattern::Solar);
     state.build_ibo_for_object(world.bodies().len());
     state.build_ubos_for_objects(1);
 

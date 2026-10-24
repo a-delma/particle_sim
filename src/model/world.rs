@@ -13,12 +13,28 @@ const PATTERN_MASS: f32 = 1.0;
 /// Radius of each body in the Random, Circle and Grid patterns.
 const PATTERN_RADIUS: f32 = 0.002;
 
+/// Solar Constants
+const PLANETS: [(f32, f32, f32, f32); 8] = [
+    (0.11, 0.21, 1.7e-7, 0.004), // Mercury
+    (0.15, 0.01, 2.4e-6, 0.006), // Venus
+    (0.17, 0.02, 3.0e-6, 0.006), // Earth
+    (0.21, 0.09, 3.2e-7, 0.005), // Mars
+    (0.40, 0.05, 9.5e-4, 0.016), // Jupiter
+    (0.54, 0.06, 2.9e-4, 0.014), // Saturn
+    (0.76, 0.05, 4.4e-5, 0.010), // Uranus
+    (0.95, 0.01, 5.2e-5, 0.010), // Neptune
+];
+
 /// Approximation constants
 const THETA: f32 = 0.5;
+/// Softening for the dense patterns, where close encounters are common.
 const SOFTENING2: f32 = 1e-3;
+/// Softening for the solar system. Much smaller, since softening bends 1/r² gravity and
+/// makes the planets' ellipses precess.
+const SOLAR_SOFTENING2: f32 = 1e-6;
 
 /// Collision Constants
-const RESTITUTION: f32 = 0.5;
+const RESTITUTION: f32 = 0.25;
 const MERGE_DEPTH: f32 = 0.90;
 const SEPARATION_RATE: f32 = 0.3;
 const SEPARATION_SLOP: f32 = 0.05;
@@ -29,10 +45,10 @@ const FRAGMENT_SPEED: f32 = 0.75;
 const SHATTER_RATIO: f32 = 1.0;
 const MIN_SHATTER_MASS: f32 = 1e-4;
 
-
 /// Other Consts
-const SPEED_SPREAD: f32 = 0.05;
+const SPEED_SPREAD: f32 = 0.0;
 const CULL_RADIUS: f32 = 10.0;
+
 
 pub enum SpawnPattern {
     Random,
@@ -40,6 +56,7 @@ pub enum SpawnPattern {
     Circle,
     /// A heavy central body with the rest orbiting it in a disc.
     Disc,
+    Solar,
 }
 
 pub struct World {
@@ -50,17 +67,23 @@ pub struct World {
     acc: Vec<Vec2>,
     pairs: Vec<(u32, u32)>,
     alive: Vec<bool>,
-    spawned: Vec<Body>
+    spawned: Vec<Body>,
+    softening2: f32,
 }
 
 impl World {
     pub fn new(count: usize, pattern: SpawnPattern) -> Self {
         let is_disc = matches!(pattern, SpawnPattern::Disc);
+        let softening2 = match pattern {
+            SpawnPattern::Solar => SOLAR_SOFTENING2,
+            _ => SOFTENING2,
+        };
         let quads = match pattern {
             SpawnPattern::Random => Self::create_random_objects(count),
             SpawnPattern::Circle => Self::create_circle_objects(count, 0.5),
             SpawnPattern::Grid => Self::create_grid_objects(count, 0.9),
             SpawnPattern::Disc => Self::create_exponential_disc_objects(count),
+            SpawnPattern::Solar => Self::create_solar_objects(count),
         };
  
         let mut world = World { 
@@ -71,9 +94,13 @@ impl World {
             pairs: Vec::new(), 
             alive: Vec::new(),
             spawned: Vec::new(),
+            softening2,
         };
 
         if is_disc { world.set_circular_velocities(); }
+        // the first step's half kick needs the starting accelerations
+        world.tree.build(&world.bodies);
+        world.compute_accelerations();
         world
     }
 
@@ -213,7 +240,7 @@ impl World {
         let center = self.bodies[0].pos;
         let mut rng = StdRng::seed_from_u64(7);
         for i in 1..self.bodies.len() {
-            let a = self.tree.acceleration(i, &self.bodies, THETA, SOFTENING2, &mut self.stack) * G;
+            let a = self.tree.acceleration(i, &self.bodies, THETA, self.softening2, &mut self.stack) * G;
             let d = self.bodies[i].pos - center;
             let r = (d.x * d.x + d.y * d.y).sqrt();
             if r < 1e-6 { continue; }
@@ -232,11 +259,57 @@ impl World {
 
     }
 
+    fn create_solar_objects(asteroids: usize) -> Vec<Body> {
+        const SUN_MASS: f32 = 1.0;
+        const SUN_RADIUS: f32 = 0.03;
+        use std::f32::consts::TAU;
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut objects = vec![Body::new(
+            Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0), SUN_MASS, SUN_MASS / SUN_RADIUS.powi(3),
+        )];
+
+        for &(a, e, mass, radius) in &PLANETS {
+            let (pos, vel) = Self::kepler_state(SUN_MASS, a, e, rng.random_range(0.0..TAU), rng.random_range(0.0..TAU));
+            objects.push(Body::new(pos, vel, mass, mass / radius.powi(3)));
+        }
+
+        // asteroid belt between Mars and Jupiter: massless in practice, slightly eccentric
+        let rock = 1e-10;
+        for _ in 0..asteroids {
+            let a = rng.random_range(0.26..0.34);
+            let e = rng.random_range(0.0..0.12);
+            let (pos, vel) = Self::kepler_state(SUN_MASS, a, e, rng.random_range(0.0..TAU), rng.random_range(0.0..TAU));
+            objects.push(Body::new(pos, vel, rock, rock / 0.001_f32.powi(3)));
+        }
+
+        // a comet starting at aphelion (nu = π), diving in to 0.18 at perihelion
+        let (pos, vel) = Self::kepler_state(SUN_MASS, 0.6, 0.7, std::f32::consts::PI, 1.0);
+        objects.push(Body::new(pos, vel, 1e-9, 1e-9 / 0.004_f32.powi(3)));
+
+        objects
+    }
+
+    /// Position and velocity, relative to a central mass at rest at the origin, of a body on a
+    /// Kepler orbit: semi-major axis `a`, eccentricity `e` (0 ≤ e < 1), true anomaly `nu` (angle
+    /// from perihelion) and perihelion direction `omega`. Orbits run counter-clockwise.
+    fn kepler_state(central_mass: f32, a: f32, e: f32, nu: f32, omega: f32) -> (Vec2, Vec2) {
+        let p = a * (1.0 - e * e);
+        let r = p / (1.0 + e * nu.cos());
+        let pos = Vec2::new(r * nu.cos(), r * nu.sin());
+        let vel = Vec2::new(-nu.sin(), e + nu.cos()) * (G * central_mass / p).sqrt();
+        let (s, c) = omega.sin_cos();
+        let rot = |v: Vec2| Vec2::new(c * v.x - s * v.y, s * v.x + c * v.y);
+        (rot(pos), rot(vel))
+    }
+
     pub fn add_body(&mut self, start: Vec2, target: Vec2, speed: f32, mass: f32, density: f32) {
        let d = target - start;
        let len = (d.x * d.x + d.y * d.y).sqrt();
        let dir = if len > 1e-6 { d * (1.0 / len) } else { Vec2::new(0.0, 0.0) };
        self.bodies.push(Body::new(start, dir * speed, mass, density));
+       // keeps `acc` lined up with `bodies`; the new body skips its first half kick
+       self.acc.push(Vec2::new(0.0, 0.0));
     }
 
     pub fn bodies(&self) -> &[Body] {
@@ -264,7 +337,7 @@ impl World {
 
             let dv = b.vel - a.vel;
             let dv2 = dv.x * dv.x + dv.y * dv.y;
-            let v_esc2 = 2.0 * G * (a.mass + b.mass) / (contact * contact + SOFTENING2).sqrt();
+            let v_esc2 = 2.0 * G * (a.mass + b.mass) / (contact * contact + self.softening2).sqrt();
             let bound = dv2 < v_esc2;
 
             let mass = a.mass + b.mass;
@@ -308,41 +381,50 @@ impl World {
         changed
     }
 
-    pub fn update(&mut self, dt: f32) {
-
-        self.tree.build(&self.bodies);
-        if self.resolve_collisions() {
-            self.tree.build(&self.bodies);
-        }
+    /// Fills `acc` with every body's acceleration. The tree must be built from `bodies`.
+    fn compute_accelerations(&mut self) {
         self.acc.resize(self.bodies.len(), Vec2::new(0.0, 0.0));
-
-        let (tree, bodies) = (&self.tree, &self.bodies);
+        let (tree, bodies, softening2) = (&self.tree, &self.bodies, self.softening2);
         self.acc
             .par_iter_mut()
             .enumerate()
-            .for_each_init(Vec::new, |stack, (i,a)| {
-                *a = tree.acceleration(i, bodies, THETA, SOFTENING2, stack) * G;
+            .for_each_init(Vec::new, |stack, (i, a)| {
+                *a = tree.acceleration(i, bodies, THETA, softening2, stack) * G;
             });
+    }
 
-        // for i in 0..self.bodies.len() {
-        //     self.acc[i] = self.tree.acceleration(i, &self.bodies, THETA, SOFTENING2, &mut self.stack) * G;
-        // }
-
-        let c = self.bodies[0];
-        for (b, a) in self.bodies.iter_mut().zip(&self.acc){
-            b.vel = b.vel + *a * dt;
+    /// One velocity Verlet (kick-drift-kick) step. `acc` holds the accelerations from the end
+    /// of the previous step, lined up with `bodies`. Collisions and culling happen between the
+    /// drift and the force pass, so the new accelerations always match the current bodies.
+    pub fn update(&mut self, dt: f32) {
+        let half = 0.5 * dt;
+        for (b, a) in self.bodies.iter_mut().zip(&self.acc) {
+            b.vel = b.vel + *a * half;
             b.pos = b.pos + b.vel * dt;
-
-            // reframing around the central mass
-            b.pos = b.pos - c.pos;
-            b.vel = b.vel - c.vel;
         }
-        let c = c.pos;
+
+        let c = self.bodies[0].pos;
         self.bodies.retain(|b| {
             let d = b.pos - c;
             d.x * d.x + d.y * d.y < CULL_RADIUS * CULL_RADIUS
         });
 
+        self.tree.build(&self.bodies);
+        if self.resolve_collisions() {
+            self.tree.build(&self.bodies);
+        }
+        self.compute_accelerations();
+
+        for (b, a) in self.bodies.iter_mut().zip(&self.acc) {
+            b.vel = b.vel + *a * half;
+        }
+
+        // reframing around the central mass; a uniform shift leaves the accelerations valid
+        let c = self.bodies[0];
+        for b in self.bodies.iter_mut() {
+            b.pos = b.pos - c.pos;
+            b.vel = b.vel - c.vel;
+        }
     }
 }
 
@@ -413,6 +495,7 @@ mod tests {
             pairs: Vec::new(),
             alive: Vec::new(),
             spawned: Vec::new(),
+            softening2: SOFTENING2,
         };
         w.tree.build(&w.bodies);
         w.resolve_collisions();
@@ -523,6 +606,50 @@ mod tests {
         assert_eq!(w.bodies[0].pos.x, -0.5);
         assert!(close(w.bodies[1].mass, 2.0));
         assert_eq!(w.bodies[2].pos.x, 0.5);
+    }
+
+    /// Semi-major axis and eccentricity vector (pointing at perihelion) of a body orbiting a
+    /// mass of 1 at the origin.
+    fn orbit_elements(b: &Body) -> (f32, Vec2) {
+        let (r, v) = (b.pos, b.vel);
+        let r_len = (r.x * r.x + r.y * r.y).sqrt();
+        let v2 = v.x * v.x + v.y * v.y;
+        let a = -1.0 / (v2 - 2.0 / r_len);
+        let e = r * (v2 - 1.0 / r_len) - v * (r.x * v.x + r.y * v.y);
+        (a, e)
+    }
+
+    #[test]
+    fn eccentric_orbit_keeps_its_shape() {
+        // Mercury's orbit around a sun of mass 1, followed for 10 orbits
+        let (a, e) = (0.11, 0.21);
+        let (pos, vel) = World::kepler_state(1.0, a, e, 0.0, 0.0);
+        let mut w = World {
+            bodies: vec![body(0.0, 0.0, 1.0, 0.03), Body::new(pos, vel, 1e-12, 1e-12 / 0.004_f32.powi(3))],
+            tree: QuadTree::new(8, 16),
+            stack: Vec::new(),
+            acc: Vec::new(),
+            pairs: Vec::new(),
+            alive: Vec::new(),
+            spawned: Vec::new(),
+            softening2: SOLAR_SOFTENING2,
+        };
+        w.tree.build(&w.bodies);
+        w.compute_accelerations();
+
+        let period = std::f32::consts::TAU * a.powf(1.5);
+        // Verlet's precession falls with dt²: at 1/120 Mercury's perihelion turns about 5° per orbit
+        let dt = 1.0 / 480.0;
+        for _ in 0..(10.0 * period / dt) as usize {
+            w.update(dt);
+        }
+
+        let (a_end, e_end) = orbit_elements(&w.bodies[1]);
+        let e_len = (e_end.x * e_end.x + e_end.y * e_end.y).sqrt();
+        let precession = e_end.y.atan2(e_end.x).to_degrees();
+        assert!((a_end - a).abs() < 0.01 * a, "semi-major axis {a_end}");
+        assert!((e_len - e).abs() < 0.01, "eccentricity {e_len}");
+        assert!(precession.abs() < 5.0, "perihelion turned {precession}°");
     }
 
     #[test]
