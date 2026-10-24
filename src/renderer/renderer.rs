@@ -14,6 +14,7 @@ use crate::renderer::backend::{
 // Quad width as a multiple of the body radius; the glow reaches GLOW_SCALE / 2 radii.
 // shader.wgsl's BODY_RADIUS is 2 / GLOW_SCALE, keep them in sync.
 const GLOW_SCALE : f32 = 20.0;
+const VIEW_SCALE : f32 = 3.0;
 
 pub struct State<'a> {
     instance: wgpu::Instance,
@@ -189,9 +190,19 @@ impl<'a> State<'a> {
 
         let aspect = screen_width / screen_height; 
         let ortho = if aspect >= 1.0 {
-            ortho(-aspect, aspect, -1.0, 1.0, -1.0, 1.0)
+            ortho(-VIEW_SCALE * aspect, 
+                  VIEW_SCALE * aspect, 
+                  -1.0 * VIEW_SCALE, 
+                  VIEW_SCALE, 
+                  -1.0, 
+                  1.0)
         } else {
-            ortho(-1.0, 1.0, -1.0 / aspect, 1.0 / aspect, -1.0, 1.0)
+            ortho(-1.0 * VIEW_SCALE, 
+                VIEW_SCALE, 
+                -1.0 * VIEW_SCALE / aspect, 
+                VIEW_SCALE / aspect, 
+                -1.0, 
+                1.0)
         };
         // let ortho = ortho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
 
@@ -205,7 +216,7 @@ impl<'a> State<'a> {
             let new_pos = q.prev_pos + (q.pos - q.prev_pos) * alpha;
             particles.push(ParticleInstance {
                 position: [new_pos.x, new_pos.y],
-                size: quads[i].radius * GLOW_SCALE,
+                size: quads[i].radius * GLOW_SCALE * VIEW_SCALE * 0.5,
                 color: [1.0, 0.9, 0.8],
             });
         }

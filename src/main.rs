@@ -7,7 +7,7 @@ use model::world::{World, SpawnPattern};
 
 use std::time::Instant;
 const DT: f32 = 1.0 / 960.0;
-const START_BODIES: usize = 15000;
+const START_BODIES: usize = 5000;
 /// Asteroid belt size for SpawnPattern::Solar.
 const SOLAR_ASTEROIDS: usize = 2000;
 // const TIME_SCALE: f32 = 1.0 / 1024.0;
@@ -78,7 +78,7 @@ async fn run() {
     state.window.set_pos_polling(true);
 
     // let mut world = World::new(SOLAR_ASTEROIDS, SpawnPattern::Solar);
-    let mut world = World::new(START_BODIES, SpawnPattern::Galaxy);
+    let mut world = World::new(START_BODIES, SpawnPattern::Encounter);
     state.build_ibo_for_object(world.bodies().len());
     state.build_ubos_for_objects(1);
 

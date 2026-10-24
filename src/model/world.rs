@@ -30,7 +30,7 @@ const SHATTER_RATIO: f32 = 1.0;
 const MIN_SHATTER_MASS: f32 = 1e-4;
 
 /// Other Consts
-const CULL_RADIUS: f32 = 10.0;
+const CULL_RADIUS: f32 = 50.0;
 
 
 pub struct World {
