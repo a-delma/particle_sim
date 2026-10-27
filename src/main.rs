@@ -5,8 +5,12 @@ use renderer::renderer::State;
 mod model;
 use model::world::{World, SpawnPattern};
 
-use std::time::{Duration, Instant};
+use std::{sync::{Arc, Mutex, mpsc::{self, RecvTimeoutError, TryRecvError}}, time::{Duration, Instant}};
+
+use crate::model::quad_tree::Body;
 const DT: f32 = 1.0 / 960.0;
+/// How far physics may fall behind real time before it drops the backlog instead of catching up.
+const MAX_LAG: Duration = Duration::from_millis(250);
 const START_BODIES: usize = 10000;
 /// Asteroid belt size for SpawnPattern::Solar.
 const SOLAR_ASTEROIDS: usize = 2000;
@@ -18,6 +22,11 @@ const FULLSCREEN: bool = false;
 const WINDOW_TITLE: &str = "RUST_SIM";
 
 type Events = GlfwReceiver<(f64, WindowEvent)>;
+
+/// Requests from the main thread, applied by the physics thread between steps.
+enum Command {
+    AddBody { start: Vec2, target: Vec2, speed: f32, mass: f32, density: f32, color: [f32; 3] },
+}
 
 /// Everything that differs between spawn patterns, chosen together so each one runs at a
 /// sensible zoom and speed.
@@ -33,6 +42,12 @@ struct Preset {
     /// motion smooth at any rate, and slow wallpapers look the same at a fraction of the GPU cost.
     max_fps: Option<f32>,
 }
+
+struct Snapshot {
+    bodies: Vec<Body>,
+    due: Instant,
+}
+
 
 /// The preset named by a command-line argument, or None if the name is unknown.
 fn preset(name: &str) -> Option<Preset> {
@@ -52,29 +67,11 @@ fn preset(name: &str) -> Option<Preset> {
     Some(Preset { pattern, count, view_scale, time_scale, max_fps })
 }
 
-fn get_centered_window(glfw: &mut Glfw, title: &str) -> (PWindow, Events) {
-    // Stay hidden until positioned, so the window doesn't flash at its default spot.
-    glfw.window_hint(WindowHint::Visible(false));
-    let (mut window, events) = glfw
-        .create_window(800, 600, title, glfw::WindowMode::Windowed)
-        .unwrap();
-
-    let (win_w, win_h) = window.get_size();
-    let center = glfw.with_primary_monitor(|_, monitor| {
-        let monitor = monitor?;
-        let (mon_x, mon_y) = monitor.get_pos();
-        let mode = monitor.get_video_mode()?;
-        Some((
-            mon_x + (mode.width as i32 - win_w) / 2,
-            mon_y + (mode.height as i32 - win_h) / 2,
-        ))
-    });
-    if let Some((x, y)) = center {
-        window.set_pos(x, y);
-    }
-    window.show();
-
-    (window, events)
+// Wayland doesn't let clients place their own windows (GLFW reports `set_pos` as an error, which
+// `fail_on_errors!` turns into a panic), so the compositor picks the spot.
+fn get_window(glfw: &mut Glfw, title: &str) -> (PWindow, Events) {
+    glfw.create_window(800, 600, title, glfw::WindowMode::Windowed)
+        .unwrap()
 }
 
 // Fullscreen on the primary monitor at its current video mode, so the display
@@ -111,7 +108,7 @@ async fn run() {
     let (mut window, events) = if FULLSCREEN {
         get_fs_window(&mut glfw, &title)
     } else {
-        get_centered_window(&mut glfw, &title)
+        get_window(&mut glfw, &title)
     };
 
     let mut state = State::new(&mut window, preset.view_scale).await;
@@ -121,32 +118,68 @@ async fn run() {
     state.window.set_mouse_button_polling(true);
     state.window.set_pos_polling(true);
 
-    let mut world = World::new(preset.count, preset.pattern);
+    let world = World::new(preset.count, preset.pattern);
+    let start = Instant::now();
+    let shared: Arc<Mutex<Arc<Snapshot>>> = Arc::new(Mutex::new(Arc::new(Snapshot { 
+            bodies: world.bodies().to_vec(), 
+            due: start })));
+
+    let step_real = Duration::from_secs_f32(DT / time_scale);
+
     state.build_ibo_for_object(world.bodies().len());
     state.build_ubos_for_objects(1);
 
-    let mut last = Instant::now();
-    let mut accumulator = 0.0;
-    let mut sim_time = 0.0;
-    let mut sim_steps = 0;
+    let (tx, rx) = mpsc::channel::<Command>();
+
+    let physics_shared = Arc::clone(&shared);
+    let physics = std::thread::spawn(move || {
+        let mut world = world;
+        let mut due = start;
+        let (mut busy, mut steps) = (Duration::ZERO, 0);
+        loop {
+            let mut next = due + step_real;
+
+            while let Some(wait) = next.checked_duration_since(Instant::now()) {
+                match rx.recv_timeout(wait) {
+                    Ok(cmd) => {
+                        apply(&mut world, cmd);
+                        publish(&physics_shared, &world, due);
+                    }
+                    Err(RecvTimeoutError::Timeout) => break,          // step is due
+                    Err(RecvTimeoutError::Disconnected) => return,    // main has exited (part 4)
+                }
+            }
+
+            loop {
+                match rx.try_recv() {
+                    Ok(cmd) => apply(&mut world, cmd),
+                    Err(TryRecvError::Empty) => break,          // step is due
+                    Err(TryRecvError::Disconnected) => return,    // main has exited (part 4)
+                }
+            }
+
+            let now = Instant::now();
+            if now - next > MAX_LAG {
+                next = now;
+            }
+
+            let t = Instant::now();
+            world.update(DT);
+            busy += t.elapsed();
+            steps += 1;
+            due = next;
+            publish(&physics_shared, &world, due);
+
+            if steps >= 120 {
+                eprintln!("{} bodies, {:.2} ms/update", world.bodies().len(),
+                          1000.0 * busy.as_secs_f32() / steps as f32);
+                (busy, steps) = (Duration::ZERO, 0);
+            }
+        }
+    });
 
     let mut next_frame = Instant::now();
     while !state.window.should_close() {
-        let now = Instant::now();
-        accumulator += (now - last).as_secs_f32().min(0.25) * time_scale;
-        last = now;
-        while accumulator >= DT {
-            let t = Instant::now();
-            world.update(DT);
-            sim_time += t.elapsed().as_secs_f32();
-            sim_steps += 1;
-            accumulator -= DT;
-        }
-        let alpha = accumulator / DT;
-        if sim_steps >= 120 {
-            eprintln!("{} bodies, {:.2} ms/update", world.bodies().len(), 1000.0 * sim_time / sim_steps as f32);
-            (sim_time, sim_steps) = (0.0, 0);
-        }
         glfw.poll_events();
         for (_, event) in glfw::flush_messages(&events) {
             match event {
@@ -187,34 +220,27 @@ async fn run() {
                     } else {
                         Vec2::new(1.0, 1.0 / aspect)
                     };
-                    let start = offscreen_start(target, half, 0.2);
-                    
-                    world.add_body(
-                        start,   // start: off-screen, top right
-                        target,  // target: just below the center, so it curves past instead of plunging in
-                        5.0,                   // speed, world units per sim second
-                        0.02,                  // mass
-                        10000.0,               // density: radius 0.01 at this mass
-                        [1.0, 0.9, 0.8],       // color
-                    );
+                    let spawn_at = offscreen_start(target, half, 0.2);
+
+                    let _ = tx.send(Command::AddBody { 
+                        start: spawn_at,   // start: off-screen, top right
+                        target,                     // target: just below the center, so it curves past instead of plunging in
+                        speed: 5.0,                   // speed, world units per sim second
+                        mass: 0.02,                  // mass
+                        density: 10000.0,               // density: radius 0.01 at this mass
+                        color: [1.0, 0.9, 0.8],       // color
+                    });
 
                 }
 
-                glfw::WindowEvent::Key(Key::Space, _, Action::Press, _) => {
-                    world.add_body(
-                        Vec2::new(2.2, 1.4),   // start: off-screen, top right
-                        Vec2::new(0.0, -0.4),  // target: just below the center, so it curves past instead of plunging in
-                        1.5,                   // speed, world units per sim second
-                        0.02,                  // mass
-                        20000.0,               // density: radius 0.01 at this mass
-                        [1.0, 0.9, 0.8],       // color
-                    );
-                }
                 _ => {}
             }
         }
 
-        match state.render(world.bodies(), alpha) {
+        let snap = Arc::clone(&shared.lock().unwrap());
+        let since = Instant::now().saturating_duration_since(snap.due);
+        let alpha = (since.as_secs_f32() / step_real.as_secs_f32()).min(1.0);
+        match state.render(&snap.bodies, alpha) {
             Ok(_) => {}
             Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                 state.update_surface();
@@ -235,7 +261,23 @@ async fn run() {
                 next_frame = now;
             }
         }
+        if physics.is_finished() {
+            state.window.set_should_close(true);
+        }
     }
+    drop(tx);
+    physics.join().unwrap();
+}
+
+fn apply(world: &mut World, cmd: Command) {
+    match cmd {
+        Command::AddBody { start, target, speed, mass, density, color } =>
+            world.add_body(start, target, speed, mass, density, color),
+    }
+}
+
+fn publish(slot: &Mutex<Arc<Snapshot>>, world: &World, due: Instant) {
+    *slot.lock().unwrap() = Arc::new(Snapshot { bodies: world.bodies().to_vec(), due });
 }
 
 fn offscreen_start(target: Vec2, half: Vec2, margin: f32) -> Vec2 {

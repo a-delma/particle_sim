@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-glfw = "0.59.0"
+glfw = { version = "0.59.0", features = ["wayland"] }
 wgpu = "25.0.0"
 pollster = "0.4.0"
 glm = "*"
@@ -12,3 +12,4 @@ nalgebra-glm = "0.20.0"
 rand = "0.10.0"
 bytemuck = "1.25.0"
 rayon = "1.10"
+mpsc  = "*"
