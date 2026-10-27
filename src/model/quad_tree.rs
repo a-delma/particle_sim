@@ -159,7 +159,7 @@ impl QuadTree {
         if node.first_child == LEAF {
             for &j in &self.order[(node.start as usize)..(node.end as usize)] {
                 let b = &bodies[j as usize];
-                mass = mass + b.mass;
+                mass += b.mass;
                 weighted = weighted + b.pos * b.mass;
                 max_radius = max_radius.max(b.radius);
             }
@@ -167,7 +167,7 @@ impl QuadTree {
             let first = node.first_child as usize;
             for c in first..first + 4 {
                 let child = self.nodes[c];
-                mass = mass + child.mass;
+                mass += child.mass;
                 weighted = weighted + child.center_of_mass * child.mass;
                 max_radius = max_radius.max(child.max_radius);
             }

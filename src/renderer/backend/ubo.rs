@@ -10,7 +10,7 @@ pub struct UBOGroup {
 impl UBOGroup {
     pub fn new(device: &wgpu::Device, object_count: usize, layout: wgpu::BindGroupLayout) -> Self {
         let alignment = glm::max(
-            device.limits().min_uniform_buffer_offset_alignment as u32,
+            device.limits().min_uniform_buffer_offset_alignment,
             std::mem::size_of::<glm::Mat4>() as u32) as u64;
             
         let buffer_descriptor = wgpu::BufferDescriptor {

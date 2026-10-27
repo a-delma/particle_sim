@@ -34,7 +34,7 @@ pub fn make_triangle(device: &wgpu::Device) -> wgpu::Buffer {
          usage: wgpu::BufferUsages::VERTEX };
 
     let vertex_buffer = device.create_buffer_init(&buffer_descriptor);
-    return vertex_buffer;
+    vertex_buffer
     
 }
 
@@ -60,6 +60,6 @@ pub fn make_quad(device: &wgpu::Device) -> Mesh {
     let buffer = device.create_buffer_init(&buffer_descriptor);
     let offset: u64 = bytes_1.len().try_into().unwrap();
 
-    Mesh {buffer: buffer, offset: offset}
+    Mesh {buffer, offset}
     
 }

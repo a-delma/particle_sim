@@ -1,6 +1,4 @@
-@group(0) @binding(0) var myTexture: texture_2d<f32>;
-@group(0) @binding(1) var mySampler: sampler;
-@group(1) @binding(0) var<uniform> view_projection: mat4x4<f32>;
+@group(0) @binding(0) var<uniform> view_projection: mat4x4<f32>;
 
 // Each particle is drawn twice from the same instance data:
 //  1. Glow pass (vs_glow / fs_glow): the full square, lit with a coloured glow that

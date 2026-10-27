@@ -145,7 +145,7 @@ impl World {
                 k += 1;
                 alive[k - 1]
             });
-            self.bodies.extend(self.spawned.drain(..));
+            self.bodies.append(&mut self.spawned);
         }
         changed
     }

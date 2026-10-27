@@ -11,7 +11,7 @@ impl<'a> Builder<'a> {
         Builder {
             entries: Vec::new(),
             layout: None,
-            device: device,
+            device,
         }
     }
 
@@ -23,27 +23,14 @@ impl<'a> Builder<'a> {
         self.layout = Some(layout);
     }
 
-    pub fn add_material(&mut self, view: &'a wgpu::TextureView, sampler: &'a wgpu::Sampler) {
-
-        self.entries.push(wgpu::BindGroupEntry {
-            binding: self.entries.len() as u32,
-            resource: wgpu::BindingResource::TextureView(view),
-        });
-        
-        self.entries.push(wgpu::BindGroupEntry {
-            binding: self.entries.len() as u32,
-            resource: wgpu::BindingResource::Sampler(sampler),
-        });
-    }
-
     pub fn add_buffer(&mut self, buffer: &'a wgpu::Buffer, offset: u64) {
 
         self.entries.push(wgpu::BindGroupEntry {
             binding: self.entries.len() as u32,
             resource: wgpu::BindingResource::Buffer(
                 wgpu::BufferBinding {
-                    buffer: buffer,
-                    offset: offset,
+                    buffer,
+                    offset,
                     size: None
                 }
             )

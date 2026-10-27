@@ -6,7 +6,6 @@ use crate::renderer::backend::{
     bind_group_layout,
     definitions::{ParticleInstance, Vertex},
     ibo::IBO,
-    material::Material,
     mesh_builder, pipeline,
     ubo::{UBO, UBOGroup},
 };
@@ -14,7 +13,9 @@ use crate::renderer::backend::{
 // Quad width as a multiple of the body radius; the glow reaches GLOW_SCALE / 2 radii.
 // shader.wgsl's BODY_RADIUS is 2 / GLOW_SCALE, keep them in sync.
 const GLOW_SCALE : f32 = 20.0;
-const VIEW_SCALE : f32 = 3.0;
+
+// Compiled into the binary, so it runs from any directory. Editing the shader needs a rebuild.
+const SHADER_SOURCE: &str = include_str!("../../shaders/shader.wgsl");
 
 pub struct State<'a> {
     instance: wgpu::Instance,
@@ -27,14 +28,15 @@ pub struct State<'a> {
     glow_pipeline: wgpu::RenderPipeline,
     core_pipeline: wgpu::RenderPipeline,
     quad_mesh: mesh_builder::Mesh,
-    quad_material: Material,
     ibo: Option<IBO<ParticleInstance>>,
     ubo: Option<UBOGroup>,
     projection_ubo: UBO,
+    /// Half the height of the view in world units (the shorter side when portrait).
+    view_scale: f32,
 }
 
 impl<'a> State<'a> {
-    pub async fn new(window: &'a mut Window) -> Self {
+    pub async fn new(window: &'a mut Window, view_scale: f32) -> Self {
         let size = window.get_framebuffer_size();
 
         let instance_descriptor = wgpu::InstanceDescriptor {
@@ -64,9 +66,7 @@ impl<'a> State<'a> {
         let surface_format = surface_capabilities
             .formats
             .iter()
-            .copied()
-            .filter(|f| f.is_srgb())
-            .next()
+            .copied().find(|f| f.is_srgb())
             .unwrap_or(surface_capabilities.formats[0]);
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -82,18 +82,11 @@ impl<'a> State<'a> {
 
         let quad_mesh = mesh_builder::make_quad(&device);
 
-        let material_bind_group_layout;
-        {
-            let mut builder = bind_group_layout::Builder::new(&device);
-            builder.add_material();
-            material_bind_group_layout = builder.build("Material Bind Group Layout");
-        }
-
         let ubo_bind_group_layout;
         {
             let mut builder = bind_group_layout::Builder::new(&device);
             builder.add_ubo();
-            ubo_bind_group_layout = builder.build("Material Bind Group Layout");
+            ubo_bind_group_layout = builder.build("UBO Bind Group Layout");
         }
 
         // Two pipelines over the same shader and instances: the glows are added up first,
@@ -102,31 +95,21 @@ impl<'a> State<'a> {
         let core_pipeline: wgpu::RenderPipeline;
         {
             let mut builder = pipeline::Builder::new(&device);
-            builder.set_shader_module("shader.wgsl", "vs_glow", "fs_glow");
+            builder.set_shader_module(SHADER_SOURCE, "vs_glow", "fs_glow");
             builder.set_pixel_format(config.format);
             builder.add_vertex_buffer_layout(Vertex::get_layout());
             builder.add_vertex_buffer_layout(ParticleInstance::get_layout());
-            builder.add_bind_group_layout(&material_bind_group_layout);
             builder.add_bind_group_layout(&ubo_bind_group_layout);
             glow_pipeline = builder.build("Glow Pipeline");
 
-            builder.set_shader_module("shader.wgsl", "vs_core", "fs_core");
+            builder.set_shader_module(SHADER_SOURCE, "vs_core", "fs_core");
             builder.add_vertex_buffer_layout(Vertex::get_layout());
             builder.add_vertex_buffer_layout(ParticleInstance::get_layout());
-            builder.add_bind_group_layout(&material_bind_group_layout);
             builder.add_bind_group_layout(&ubo_bind_group_layout);
             // premultiplied alpha: the core covers what is behind it by its alpha
             builder.set_blend(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING);
             core_pipeline = builder.build("Core Pipeline");
         }
-
-        let quad_material = Material::new(
-            "Gigi_small.png",
-            &device,
-            &queue,
-            "Quad Material",
-            &material_bind_group_layout,
-        );
 
         let projection_ubo = UBO::new(&device, ubo_bind_group_layout);
 
@@ -141,10 +124,10 @@ impl<'a> State<'a> {
             glow_pipeline,
             core_pipeline,
             quad_mesh,
-            quad_material: quad_material,
             ibo: None,
             ubo: None,
-            projection_ubo: projection_ubo,
+            projection_ubo,
+            view_scale,
         }
     }
 
@@ -153,7 +136,7 @@ impl<'a> State<'a> {
         {
             let mut builder = bind_group_layout::Builder::new(&self.device);
             builder.add_ubo();
-            ubo_bind_group_layout = builder.build("Material Bind Group Layout");
+            ubo_bind_group_layout = builder.build("UBO Bind Group Layout");
         }
 
         self.ubo = Some(UBOGroup::new(
@@ -189,18 +172,19 @@ impl<'a> State<'a> {
         let screen_height = self.config.height as f32;
 
         let aspect = screen_width / screen_height; 
+        let view_scale = self.view_scale;
         let ortho = if aspect >= 1.0 {
-            ortho(-VIEW_SCALE * aspect, 
-                  VIEW_SCALE * aspect, 
-                  -1.0 * VIEW_SCALE, 
-                  VIEW_SCALE, 
+            ortho(-view_scale * aspect, 
+                  view_scale * aspect, 
+                  -view_scale, 
+                  view_scale, 
                   -1.0, 
                   1.0)
         } else {
-            ortho(-1.0 * VIEW_SCALE, 
-                VIEW_SCALE, 
-                -1.0 * VIEW_SCALE / aspect, 
-                VIEW_SCALE / aspect, 
+            ortho(-view_scale, 
+                view_scale, 
+                -view_scale / aspect, 
+                view_scale / aspect, 
                 -1.0, 
                 1.0)
         };
@@ -216,7 +200,7 @@ impl<'a> State<'a> {
             let new_pos = q.prev_pos + (q.pos - q.prev_pos) * alpha;
             particles.push(ParticleInstance {
                 position: [new_pos.x, new_pos.y],
-                size: quads[i].radius * GLOW_SCALE * VIEW_SCALE * 0.5,
+                size: quads[i].radius * GLOW_SCALE * self.view_scale * 0.5,
                 color: quads[i].color,
             });
         }
@@ -273,8 +257,7 @@ impl<'a> State<'a> {
         {
             let mut renderpass = command_encoder.begin_render_pass(&render_pass_descriptor);
             // Rendering the Quads
-            renderpass.set_bind_group(0, &self.quad_material.bind_group, &[]);
-            renderpass.set_bind_group(1, &self.projection_ubo.bind_group, &[]);
+            renderpass.set_bind_group(0, &self.projection_ubo.bind_group, &[]);
             renderpass.set_vertex_buffer(0, self.quad_mesh.buffer.slice(0..self.quad_mesh.offset));
             renderpass.set_vertex_buffer(1, self.ibo.as_ref().unwrap().buffer.slice(..));
             renderpass.set_index_buffer(

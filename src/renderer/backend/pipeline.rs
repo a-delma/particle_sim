@@ -1,8 +1,6 @@
-use std::env::current_dir;
-use std::fs;
-
 pub struct Builder<'a> {
-    shader_filename: String,
+    /// WGSL source, embedded in the binary by the caller (`include_str!`).
+    shader_source: &'static str,
     vertex_entry: String,
     fragment_entry: String,
     pixel_format: wgpu::TextureFormat,
@@ -16,7 +14,7 @@ impl<'a> Builder<'a> {
     
     pub fn new(device: &'a wgpu::Device) -> Self {
         Builder {
-            shader_filename: "dummy".to_string(),
+            shader_source: "",
             vertex_entry: "dummy".to_string(),
             fragment_entry: "dummy".to_string(),
             pixel_format: wgpu::TextureFormat::Rgba8Unorm,
@@ -35,7 +33,7 @@ impl<'a> Builder<'a> {
             },
             vertex_buffer_layouts: Vec::new(),
             bind_group_layouts: Vec::new(),
-            device: device,
+            device,
         }
     }
 
@@ -52,9 +50,9 @@ impl<'a> Builder<'a> {
         self.bind_group_layouts.push(layout);
     }
 
-    pub fn set_shader_module(&mut self, shader_filename: &str, vertex_entry: &str, fragment_entry: &str) {
+    pub fn set_shader_module(&mut self, shader_source: &'static str, vertex_entry: &str, fragment_entry: &str) {
 
-        self.shader_filename = shader_filename.to_string();
+        self.shader_source = shader_source;
         self.vertex_entry = vertex_entry.to_string();
         self.fragment_entry = fragment_entry.to_string();
     }
@@ -71,15 +69,9 @@ impl<'a> Builder<'a> {
 
     pub fn build(&mut self, label: &str) -> wgpu::RenderPipeline {
 
-        let mut filepath = current_dir().unwrap();
-        filepath.push("shaders/");
-        filepath.push(self.shader_filename.as_str());
-        let filepath = filepath.into_os_string().into_string().unwrap();
-        let source_code = fs::read_to_string(filepath).expect("Can't read source code!");
-
         let shader_module_descriptor = wgpu::ShaderModuleDescriptor {
             label: Some("Shader Module"),
-            source: wgpu::ShaderSource::Wgsl(source_code.into()),
+            source: wgpu::ShaderSource::Wgsl(self.shader_source.into()),
         };
         let shader_module = self.device.create_shader_module(shader_module_descriptor);
 

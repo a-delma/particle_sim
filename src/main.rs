@@ -5,19 +5,52 @@ use renderer::renderer::State;
 mod model;
 use model::world::{World, SpawnPattern};
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 const DT: f32 = 1.0 / 960.0;
-const START_BODIES: usize = 5000;
+const START_BODIES: usize = 10000;
 /// Asteroid belt size for SpawnPattern::Solar.
 const SOLAR_ASTEROIDS: usize = 2000;
-// const TIME_SCALE: f32 = 1.0 / 1024.0;
-const TIME_SCALE: f32 = 1.0 / 4.0;
+/// Spawn pattern used when the second command-line argument is missing or unknown.
+const DEFAULT_PATTERN: &str = "encounter";
 const FULLSCREEN: bool = false;
 /// Default window title. The first command-line argument overrides it, so several instances
 /// can be told apart (hyprwinwrap matches windows by exact title).
 const WINDOW_TITLE: &str = "RUST_SIM";
 
 type Events = GlfwReceiver<(f64, WindowEvent)>;
+
+/// Everything that differs between spawn patterns, chosen together so each one runs at a
+/// sensible zoom and speed.
+struct Preset {
+    pattern: SpawnPattern,
+    /// Body count passed to `World::new`.
+    count: usize,
+    /// Half the view height in world units.
+    view_scale: f32,
+    /// Sim time per real second.
+    time_scale: f32,
+    /// Frame rate cap, or None to draw at the display's refresh rate. Interpolation keeps
+    /// motion smooth at any rate, and slow wallpapers look the same at a fraction of the GPU cost.
+    max_fps: Option<f32>,
+}
+
+/// The preset named by a command-line argument, or None if the name is unknown.
+fn preset(name: &str) -> Option<Preset> {
+    let (pattern, count, view_scale, time_scale, max_fps) = match name {
+        // Mercury orbits about once every 10 minutes, moving well under a pixel per frame
+        "solar" => (SpawnPattern::Solar, SOLAR_ASTEROIDS, 1.0, 1.0 / 2600.0, Some(10.0)),
+        // zoomed out to fit both galaxies and the wide pass between them
+        "encounter" => (SpawnPattern::Encounter, START_BODIES, 3.0, 1.0 / 512.0, Some(30.0)),
+        "galaxy" => (SpawnPattern::Galaxy, START_BODIES, 1.0, 1.0 / 1024.0, Some(30.0)),
+        "disc" => (SpawnPattern::Disc, START_BODIES, 1.0, 1.0 / 1024.0, Some(30.0)),
+        // the original demo patterns, at the original interactive speed
+        "random" => (SpawnPattern::Random, START_BODIES, 1.0, 1.0 / 3.0, None),
+        "grid" => (SpawnPattern::Grid, START_BODIES, 1.0, 1.0 / 3.0, None),
+        "circle" => (SpawnPattern::Circle, START_BODIES, 1.0, 1.0 / 3.0, None),
+        _ => return None,
+    };
+    Some(Preset { pattern, count, view_scale, time_scale, max_fps })
+}
 
 fn get_centered_window(glfw: &mut Glfw, title: &str) -> (PWindow, Events) {
     // Stay hidden until positioned, so the window doesn't flash at its default spot.
@@ -63,22 +96,32 @@ fn get_fs_window(glfw: &mut Glfw, title: &str) -> (PWindow, Events) {
 async fn run() {
     let mut glfw = glfw::init(fail_on_errors!()).unwrap();
     glfw.window_hint(WindowHint::ClientApi(ClientApiHint::NoApi));
+    // usage: particle_sim [title] [pattern]
     let title = std::env::args().nth(1).unwrap_or_else(|| WINDOW_TITLE.to_string());
+    let name = std::env::args().nth(2).unwrap_or_else(|| DEFAULT_PATTERN.to_string());
+    let preset = preset(&name).unwrap_or_else(|| {
+        eprintln!(
+            "unknown pattern '{name}' (expected solar, encounter, galaxy, disc, random, grid or \
+             circle), using {DEFAULT_PATTERN}"
+        );
+        preset(DEFAULT_PATTERN).unwrap()
+    });
+    let time_scale = preset.time_scale;
+    let frame_interval = preset.max_fps.map(|fps| Duration::from_secs_f32(1.0 / fps));
     let (mut window, events) = if FULLSCREEN {
         get_fs_window(&mut glfw, &title)
     } else {
         get_centered_window(&mut glfw, &title)
     };
 
-    let mut state = State::new(&mut window).await;
+    let mut state = State::new(&mut window, preset.view_scale).await;
 
     state.window.set_framebuffer_size_polling(true);
     state.window.set_key_polling(true);
     state.window.set_mouse_button_polling(true);
     state.window.set_pos_polling(true);
 
-    // let mut world = World::new(SOLAR_ASTEROIDS, SpawnPattern::Solar);
-    let mut world = World::new(START_BODIES, SpawnPattern::Encounter);
+    let mut world = World::new(preset.count, preset.pattern);
     state.build_ibo_for_object(world.bodies().len());
     state.build_ubos_for_objects(1);
 
@@ -87,9 +130,10 @@ async fn run() {
     let mut sim_time = 0.0;
     let mut sim_steps = 0;
 
+    let mut next_frame = Instant::now();
     while !state.window.should_close() {
         let now = Instant::now();
-        accumulator += (now - last).as_secs_f32().min(0.25) * TIME_SCALE;
+        accumulator += (now - last).as_secs_f32().min(0.25) * time_scale;
         last = now;
         while accumulator >= DT {
             let t = Instant::now();
@@ -177,6 +221,19 @@ async fn run() {
                 state.resize(state.size);
             }
             Err(e) => eprintln!("{:?}", e),
+        }
+
+        // Sleep off the rest of this frame's time slot. Deadlines advance by a fixed interval
+        // so the rate doesn't drift; after a slow frame the schedule restarts from now instead
+        // of drawing several frames back to back to catch up.
+        if let Some(interval) = frame_interval {
+            next_frame += interval;
+            let now = Instant::now();
+            if next_frame > now {
+                std::thread::sleep(next_frame - now);
+            } else {
+                next_frame = now;
+            }
         }
     }
 }

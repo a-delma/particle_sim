@@ -138,7 +138,7 @@ impl World {
     /// that one is body 0.
     fn create_grid_objects(count: usize, half_size: f32) -> Vec<Body> {
         let mut side = (count as f64).sqrt() as usize;
-        if side % 2 == 0 {
+        if side.is_multiple_of(2) {
             side = side.saturating_sub(1);
         }
         let side = side.max(1);
@@ -343,7 +343,7 @@ impl World {
         let mut bodies = Self::create_galaxy_inner(count, &mut rng, Vec2::new(0.0, 0.0), Vec2::new(0.0, 0.0), MAIN_MASS, c1);
         // let mut bodies = Self::create_exponential_disc_objects(count, c1);
 
-        let q: f32 = rng.random_range(2.5..3.5);
+        let q: f32 = rng.random_range(1.5..2.2);
         let e: f32 = rng.random_range(0.5..0.8);
         // far enough that the companion's whole disc (radius √MASS_RATIO) starts outside the
         // ±1.78 × ±1 view
@@ -351,7 +351,7 @@ impl World {
         let omega: f32 = rng.random_range(0.0..std::f32::consts::TAU);
         let p: f32 = q * (1.0 + e);
         let a: f32 = q / (1.0 - e);
-        let nu: f32 = -1.0 * ((p / r_zero - 1.0) / e).clamp(-1.0, 1.0).acos();
+        let nu: f32 = -((p / r_zero - 1.0) / e).clamp(-1.0, 1.0).acos();
 
         let (center, bulk_vel) = Self::kepler_state(MAIN_MASS * (1.0 + MASS_RATIO), a, e, nu, omega);
         let speed = (bulk_vel.x * bulk_vel.x + bulk_vel.y * bulk_vel.y).sqrt();

@@ -13,7 +13,7 @@ impl<T: Pod> IBO<T> {
 
         let buffer_descriptor = wgpu::BufferDescriptor {
             label: Some("IBO"),
-            size: size,
+            size,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         };
